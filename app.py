@@ -240,6 +240,7 @@ class MainWindow(QMainWindow):
         self.worker: GenerateWorker | None = None
         self.manual_generation_queue: list[dict] = []
         self.pending_manual_variant_for_download: int | None = None
+        self._waiting_for_manual_page_load = False
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -406,7 +407,24 @@ class MainWindow(QMainWindow):
             "Manual mode uses the embedded browser session (no API key). "
             "Make sure you are logged into grok.com in the right pane."
         )
+        self._waiting_for_manual_page_load = True
+        self.browser.loadFinished.connect(self._on_manual_page_load_finished)
         self.browser.setUrl(QUrl("https://grok.com/imagine"))
+
+    def _on_manual_page_load_finished(self, ok: bool) -> None:
+        if not self._waiting_for_manual_page_load:
+            return
+        self._waiting_for_manual_page_load = False
+        try:
+            self.browser.loadFinished.disconnect(self._on_manual_page_load_finished)
+        except Exception:  # noqa: BLE001
+            pass
+
+        if not ok:
+            self._append_log("ERROR: Could not load grok.com/imagine for manual generation.")
+            self.generate_btn.setEnabled(True)
+            return
+
         self._submit_next_manual_variant()
 
     def _submit_next_manual_variant(self) -> None:
@@ -423,60 +441,64 @@ class MainWindow(QMainWindow):
 
         escaped_prompt = repr(prompt)
         script = rf"""
-            (() => {{
-                const prompt = {escaped_prompt};
-                const promptSelectors = [
-                    "textarea[placeholder*='Type to imagine' i]",
-                    "input[placeholder*='Type to imagine' i]",
-                    "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
-                ];
+            (async () => {{
+                try {{
+                    const prompt = {escaped_prompt};
+                    const promptSelectors = [
+                        "div.tiptap.ProseMirror[contenteditable='true']",
+                        "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
+                        "[role='textbox'][aria-label*='Type to imagine' i]",
+                        "textarea[placeholder*='Type to imagine' i]",
+                        "input[placeholder*='Type to imagine' i]"
+                    ];
 
-                const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                const input = promptSelectors
-                    .flatMap((selector) => [...document.querySelectorAll(selector)])
-                    .find((el) => isVisible(el));
-                if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const input = promptSelectors
+                        .flatMap((selector) => [...document.querySelectorAll(selector)])
+                        .find((el) => isVisible(el));
+                    if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
 
-                input.focus();
-                if (input.isContentEditable) {{
-                    input.textContent = prompt;
-                    input.dispatchEvent(new InputEvent("input", {{ bubbles: true }}));
-                }} else {{
-                    input.value = prompt;
-                    input.dispatchEvent(new Event("input", {{ bubbles: true }}));
-                    input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                    input.focus();
+                    if (input.isContentEditable) {{
+                        document.execCommand("selectAll", false, null);
+                        document.execCommand("insertText", false, prompt);
+                        if (!(input.textContent || "").trim()) {{
+                            input.innerHTML = `<p>${{prompt.replace(/&/g, "&amp;").replace(/</g, "&lt;")}}</p>`;
+                        }}
+                        input.dispatchEvent(new InputEvent("beforeinput", {{ bubbles: true, inputType: "insertText", data: prompt }}));
+                        input.dispatchEvent(new InputEvent("input", {{ bubbles: true, inputType: "insertText", data: prompt }}));
+                        input.dispatchEvent(new KeyboardEvent("keyup", {{ bubbles: true, key: " ", code: "Space" }}));
+                    }} else {{
+                        const proto = Object.getPrototypeOf(input);
+                        const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+                        if (valueSetter) valueSetter.call(input, prompt);
+                        else input.value = prompt;
+                        input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                    }}
+
+                    const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
+                    if (!typedValue.trim()) return {{ ok: false, error: "Prompt field did not accept text" }};
+
+                    const form = input.closest("form") || null;
+                    const submitCandidates = form
+                        ? [...form.querySelectorAll("button[type='submit'], button[aria-label*='submit' i], [role='button'][aria-label*='submit' i]")]
+                        : [...document.querySelectorAll("button[type='submit'], button[aria-label*='submit' i]")];
+                    const submit = submitCandidates.find((el) => isVisible(el));
+                    if (!submit) return {{ ok: false, error: "Submit button not found" }};
+
+                    const waitUntil = Date.now() + 8000;
+                    while (submit.disabled && Date.now() < waitUntil) {{
+                        await new Promise((resolve) => setTimeout(resolve, 150));
+                    }}
+                    if (submit.disabled) return {{ ok: false, error: "Submit button stayed disabled after prompt fill" }};
+
+                    submit.dispatchEvent(new MouseEvent("click", {{ bubbles: true, cancelable: true, composed: true }}));
+                    return {{ ok: true, filledLength: typedValue.length }};
+                }} catch (err) {{
+                    return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
-
-                const buttonScore = (button) => {{
-                    const text = ((button.innerText || "") + " " + (button.getAttribute("aria-label") || "")).toLowerCase();
-                    if (!text.trim()) return 0;
-                    if (text.includes("project")) return 0;
-                    if (/\bgenerate\b|\bimagine\b|\bcreate\s+video\b/.test(text)) return 3;
-                    if (text.includes("create")) return 1;
-                    return 0;
-                }};
-
-                let submit = null;
-                const form = input.closest("form");
-                if (form) {{
-                    submit = [...form.querySelectorAll("button, [role='button']")]
-                        .filter(isVisible)
-                        .sort((a, b) => buttonScore(b) - buttonScore(a))
-                        .find((b) => buttonScore(b) > 0) || null;
-                }}
-
-                if (!submit) {{
-                    const root = input.closest("section, main, article, div") || document.body;
-                    submit = [...root.querySelectorAll("button, [role='button']")]
-                        .filter(isVisible)
-                        .sort((a, b) => buttonScore(b) - buttonScore(a))
-                        .find((b) => buttonScore(b) > 0) || null;
-                }}
-
-                if (!submit) return {{ ok: false, error: "Generate button not found" }};
-                submit.click();
-                return {{ ok: true }};
             }})()
         """
 
