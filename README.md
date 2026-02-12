@@ -11,7 +11,7 @@ This project is now a **desktop Python GUI app** instead of a Flask web server.
 
 ## Features
 
-1. Enter Grok API key and video model.
+1. Enter Grok API key and video model (API key only required for API-driven generation).
 2. Choose prompt generation mode:
    - Manual prompt (no prompt API call)
    - Grok API prompt generation
@@ -52,6 +52,7 @@ python app.py
 
 ## Notes
 
+- In **Manual prompt** mode, clicking Generate uses the embedded right-pane browser session at `grok.com/imagine` (no xAI API call), submits your prompt, waits for output, and downloads the generated video into `downloads/`.
 - Downloaded videos are saved under `downloads/`.
 - The right-hand pane is always present and opens `https://grok.com` so you can quickly use "Type to imagine".
 - The local video preview now uses Qt Multimedia (`QMediaPlayer` + `QVideoWidget`) for more reliable playback.
