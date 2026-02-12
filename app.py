@@ -429,7 +429,64 @@ class MainWindow(QMainWindow):
             self.generate_btn.setEnabled(True)
             return
 
-        self._submit_next_manual_variant()
+        self._prime_manual_imagine_input_and_submit()
+
+    def _prime_manual_imagine_input_and_submit(self) -> None:
+        self._append_log("Priming Grok imagine input with 'Type to imagine'...")
+
+        script = r"""
+            (() => {
+                try {
+                    const tagText = "Type to imagine";
+                    const promptSelectors = [
+                        "textarea[placeholder*='Type to imagine' i]",
+                        "input[placeholder*='Type to imagine' i]",
+                        "div.tiptap.ProseMirror[contenteditable='true']",
+                        "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
+                    ];
+
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const input = promptSelectors
+                        .flatMap((selector) => [...document.querySelectorAll(selector)])
+                        .find((el) => isVisible(el));
+                    if (!input) return { ok: false, error: "Type to imagine input not found" };
+
+                    input.focus();
+                    if (input.isContentEditable) {
+                        const paragraph = document.createElement("p");
+                        paragraph.textContent = tagText;
+                        input.replaceChildren(paragraph);
+                    } else {
+                        const proto = Object.getPrototypeOf(input);
+                        const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+                        if (valueSetter) valueSetter.call(input, tagText);
+                        else input.value = tagText;
+                    }
+
+                    input.dispatchEvent(new Event("input", { bubbles: true }));
+                    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+                    return { ok: true };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+
+        def after_prime(result):
+            if isinstance(result, dict) and result.get("ok"):
+                self._append_log("Grok imagine input primed. Continuing with manual prompt population...")
+                self._submit_next_manual_variant()
+                return
+
+            error_detail = result.get("error") if isinstance(result, dict) else result
+            self._append_log(
+                f"WARNING: Could not prime 'Type to imagine' input before manual fill: {error_detail!r}. Continuing..."
+            )
+            self._submit_next_manual_variant()
+
+        self.browser.page().runJavaScript(script, after_prime)
 
     def _submit_next_manual_variant(self) -> None:
         if not self.manual_generation_queue:
