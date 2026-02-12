@@ -9,7 +9,6 @@ import requests
 from PySide6.QtCore import QMimeData, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWidgets import (
     QApplication,
@@ -208,7 +207,7 @@ class GenerateWorker(QThread):
 
         video_job_id = None
         chosen_resolution = None
-        for resolution in ["1280x720", "640x420"]:
+        for resolution in ["1280x720", "854x480"]:
             try:
                 video_job_id = self.start_video_job(prompt, resolution)
                 chosen_resolution = resolution
@@ -351,15 +350,9 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         left_layout.addWidget(self.log)
 
-        left_layout.addWidget(QLabel("Video Preview"))
-        self.video_preview = QVideoWidget()
-        self.video_preview.setMinimumHeight(220)
-        left_layout.addWidget(self.video_preview)
-
         self.player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
         self.player.setAudioOutput(self.audio_output)
-        self.player.setVideoOutput(self.video_preview)
 
         self.browser = QWebEngineView()
         self.browser.setPage(FilteredWebEnginePage(self._append_log, self.browser))
@@ -521,9 +514,19 @@ class MainWindow(QMainWindow):
                     }};
 
                     const composer = input.closest("form") || input.parentElement || document;
-                    clickByText([/video/i], composer) || clickByText([/video/i]);
-                    clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i], composer) || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i]);
-                    clickByText([/10\s*s(ec(onds?)?)?/i], composer) || clickByText([/10\s*s(ec(onds?)?)?/i]);
+                    const clickVisibleButtonByAriaLabel = (ariaLabel) => {{
+                        const button = [...document.querySelectorAll(`button[aria-label='${{ariaLabel}}']`)]
+                            .find((el) => isVisible(el) && !el.disabled);
+                        if (!button) return false;
+                        button.click();
+                        return true;
+                    }};
+
+                    const optionsRequested = [];
+                    if (clickByText([/^video$/i], composer) || clickByText([/^video$/i])) optionsRequested.push("video");
+                    if (clickVisibleButtonByAriaLabel("720p") || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i], composer) || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i])) optionsRequested.push("720p");
+                    if (clickVisibleButtonByAriaLabel("10s") || clickByText([/^10\s*s(ec(onds?)?)?$/i], composer) || clickByText([/^10\s*s(ec(onds?)?)?$/i])) optionsRequested.push("10s");
+                    if (clickVisibleButtonByAriaLabel("16:9") || clickByText([/^16\s*:\s*9$/i], composer) || clickByText([/^16\s*:\s*9$/i])) optionsRequested.push("16:9");
 
                     const submitSelectors = [
                         "button[type='submit'][aria-label='Submit']",
@@ -541,7 +544,7 @@ class MainWindow(QMainWindow):
 
                     submitButton.click();
 
-                    return {{ ok: true, filledLength: typedValue.length, submitted: true, optionsRequested: ["video", "720p", "10s"] }};
+                    return {{ ok: true, filledLength: typedValue.length, submitted: true, optionsRequested }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
@@ -555,7 +558,11 @@ class MainWindow(QMainWindow):
                 self._append_log(f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}")
                 self.generate_btn.setEnabled(True)
                 return
-            self._append_log(f"Prompt populated for variant {variant}; requested Video + 720p + 10s, submitted, and now waiting for generation to auto-download.")
+            options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
+            options_summary = ", ".join(options_requested) if options_requested else "none detected"
+            self._append_log(
+                f"Prompt populated for variant {variant}; requested options: {options_summary}; submitted and now waiting for generation to auto-download."
+            )
             self._trigger_browser_video_download(variant)
 
         self.browser.page().runJavaScript(script, after_submit)
@@ -665,15 +672,15 @@ class MainWindow(QMainWindow):
 
     def _preview_video(self, file_path: str) -> None:
         self.player.setSource(QUrl.fromLocalFile(file_path))
-        self.player.play()
-        self._append_log(f"Previewing video: {file_path}")
+        self.player.stop()
+        self._append_log(f"Selected video (preview disabled): {file_path}")
 
     def open_local_video(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(self, "Select video", str(DOWNLOAD_DIR), "Videos (*.mp4 *.mov *.webm)")
         if not file_path:
             return
         self._preview_video(file_path)
-        self._append_log(f"Opened local file: {file_path}")
+        self._append_log(f"Opened local file (preview disabled): {file_path}")
 
     def _toggle_prompt_source_fields(self) -> None:
         source = self.prompt_source.currentData() if hasattr(self, "prompt_source") else "manual"
