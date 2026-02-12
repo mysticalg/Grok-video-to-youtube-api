@@ -10,7 +10,7 @@ from PySide6.QtCore import QMimeData, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWebEngineCore import QWebEnginePage
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -32,8 +32,35 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
+CACHE_DIR = BASE_DIR / ".qtwebengine"
 API_BASE_URL = os.getenv("XAI_API_BASE", "https://api.x.ai/v1")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _configure_qtwebengine_runtime() -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    default_flags = [
+        "--enable-gpu-rasterization",
+        "--enable-zero-copy",
+        "--ignore-gpu-blocklist",
+        "--disable-renderer-backgrounding",
+        "--autoplay-policy=no-user-gesture-required",
+        f"--media-cache-size={_env_int('GROK_BROWSER_MEDIA_CACHE_BYTES', 268435456)}",
+        f"--disk-cache-size={_env_int('GROK_BROWSER_DISK_CACHE_BYTES', 536870912)}",
+    ]
+    existing_flags = os.getenv("QTWEBENGINE_CHROMIUM_FLAGS", "").strip()
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(default_flags + ([existing_flags] if existing_flags else []))
 
 
 @dataclass
@@ -336,6 +363,19 @@ class MainWindow(QMainWindow):
 
         self.browser = QWebEngineView()
         self.browser.setPage(FilteredWebEnginePage(self._append_log, self.browser))
+        browser_profile = self.browser.page().profile()
+        browser_profile.setPersistentStoragePath(str(CACHE_DIR / "profile"))
+        browser_profile.setCachePath(str(CACHE_DIR / "cache"))
+        browser_profile.setPersistentCookiesPolicy(QWebEngineProfile.ForcePersistentCookies)
+        browser_profile.setHttpCacheType(QWebEngineProfile.DiskHttpCache)
+        browser_profile.setHttpCacheMaximumSize(_env_int("GROK_BROWSER_DISK_CACHE_BYTES", 536870912))
+
+        browser_settings = self.browser.settings()
+        browser_settings.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
+        browser_settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+        browser_settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
+        browser_settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+
         self.browser.setUrl(QUrl("https://grok.com"))
         self.browser.page().profile().downloadRequested.connect(self._on_browser_download_requested)
 
@@ -697,6 +737,7 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == "__main__":
+    _configure_qtwebengine_runtime()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

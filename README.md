@@ -51,6 +51,28 @@ python app.py
 - `OPENAI_CHAT_MODEL` (default: `gpt-4o-mini`)
 - `OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
 
+## Browser performance tuning (embedded Chromium)
+
+If video playback feels choppy in the embedded browser, the app now enables a persistent disk cache and Chromium GPU/media flags by default.
+
+You can override cache sizing via environment variables:
+
+- `GROK_BROWSER_DISK_CACHE_BYTES` (default: `536870912`, i.e. 512 MB)
+- `GROK_BROWSER_MEDIA_CACHE_BYTES` (default: `268435456`, i.e. 256 MB)
+
+You can also append custom Chromium flags with:
+
+- `QTWEBENGINE_CHROMIUM_FLAGS`
+
+Example:
+
+```bash
+export GROK_BROWSER_DISK_CACHE_BYTES=1073741824
+export GROK_BROWSER_MEDIA_CACHE_BYTES=536870912
+export QTWEBENGINE_CHROMIUM_FLAGS="--max-gum-fps=30"
+python app.py
+```
+
 ## Notes
 
 - In **Manual prompt** mode, clicking Generate uses the embedded right-pane browser session at `grok.com/imagine` (no xAI API call), submits your prompt, waits for output, and downloads the generated video into `downloads/`.
