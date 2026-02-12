@@ -244,7 +244,6 @@ class MainWindow(QMainWindow):
         self.manual_download_poll_timer = QTimer(self)
         self.manual_download_poll_timer.setSingleShot(True)
         self.manual_download_poll_timer.timeout.connect(self._poll_for_manual_video)
-        self._waiting_for_manual_page_load = False
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -405,96 +404,16 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
     def _start_manual_browser_generation(self, prompt: str, count: int) -> None:
-        self.manual_generation_queue = [{"prompt": prompt, "variant": idx} for idx in range(1, count + 1)]
+        self.manual_generation_queue = [{"prompt": prompt, "variant": 1}]
         self.generate_btn.setEnabled(False)
         self._append_log(
-            "Manual mode uses the embedded browser session (no API key). "
-            "Make sure you are logged into grok.com in the right pane."
+            "Manual mode now reuses the current browser page exactly as-is. "
+            "No navigation or reload will happen."
         )
-        self._append_log(
-            "Preparing manual generation workflow: load imagine page, prime input, then populate prompts."
-        )
-        self._waiting_for_manual_page_load = True
-        try:
-            self.browser.loadFinished.disconnect(self._on_manual_page_load_finished)
-        except Exception:  # noqa: BLE001
-            pass
-        self.browser.loadFinished.connect(self._on_manual_page_load_finished)
-        self.browser.setUrl(QUrl("https://grok.com/imagine"))
-
-    def _on_manual_page_load_finished(self, ok: bool) -> None:
-        if not self._waiting_for_manual_page_load:
-            return
-        self._waiting_for_manual_page_load = False
-        try:
-            self.browser.loadFinished.disconnect(self._on_manual_page_load_finished)
-        except Exception:  # noqa: BLE001
-            pass
-
-        if not ok:
-            self._append_log("ERROR: Could not load grok.com/imagine for manual generation.")
-            self.generate_btn.setEnabled(True)
-            return
-
-        self._append_log("Imagine page loaded. Priming input before prompt population.")
-        self._prime_manual_imagine_input_and_submit()
-
-    def _prime_manual_imagine_input_and_submit(self) -> None:
-        self._append_log("Priming Grok imagine input with 'Type to imagine'...")
-
-        script = r"""
-            (() => {
-                try {
-                    const tagText = "Type to imagine";
-                    const promptSelectors = [
-                        "textarea[placeholder*='Type to imagine' i]",
-                        "input[placeholder*='Type to imagine' i]",
-                        "div.tiptap.ProseMirror[contenteditable='true']",
-                        "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
-                    ];
-
-                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                    const input = promptSelectors
-                        .flatMap((selector) => [...document.querySelectorAll(selector)])
-                        .find((el) => isVisible(el));
-                    if (!input) return { ok: false, error: "Type to imagine input not found" };
-
-                    input.focus();
-                    if (input.isContentEditable) {
-                        const paragraph = document.createElement("p");
-                        paragraph.textContent = tagText;
-                        input.replaceChildren(paragraph);
-                    } else {
-                        const proto = Object.getPrototypeOf(input);
-                        const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-                        if (valueSetter) valueSetter.call(input, tagText);
-                        else input.value = tagText;
-                    }
-
-                    input.dispatchEvent(new Event("input", { bubbles: true }));
-                    input.dispatchEvent(new Event("change", { bubbles: true }));
-
-                    return { ok: true };
-                } catch (err) {
-                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
-                }
-            })()
-        """
-
-        def after_prime(result):
-            if isinstance(result, dict) and result.get("ok"):
-                self._append_log("Grok imagine input primed. Continuing with manual prompt population...")
-                self._submit_next_manual_variant()
-                return
-
-            error_detail = result.get("error") if isinstance(result, dict) else result
-            self._append_log(
-                f"WARNING: Could not prime 'Type to imagine' input before manual fill: {error_detail!r}. Continuing..."
-            )
-            self._submit_next_manual_variant()
-
-        self.browser.page().runJavaScript(script, after_prime)
+        if count > 1:
+            self._append_log("Manual mode populates one prompt per click; ignoring Count and filling once.")
+        self._append_log("Attempting to populate the visible 'Type to imagine' prompt box on the current page...")
+        self._submit_next_manual_variant()
 
     def _submit_next_manual_variant(self) -> None:
         if not self.manual_generation_queue:
