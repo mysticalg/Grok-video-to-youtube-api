@@ -213,6 +213,8 @@ class MainWindow(QMainWindow):
         self.resize(1500, 900)
         self.videos: list[dict] = []
         self.worker: GenerateWorker | None = None
+        self.manual_generation_queue: list[dict] = []
+        self.pending_manual_variant_for_download: int | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -305,6 +307,7 @@ class MainWindow(QMainWindow):
 
         self.browser = QWebEngineView()
         self.browser.setUrl(QUrl("https://grok.com"))
+        self.browser.page().profile().downloadRequested.connect(self._on_browser_download_requested)
 
         self._toggle_prompt_source_fields()
 
@@ -324,13 +327,15 @@ class MainWindow(QMainWindow):
         self.log.appendPlainText(text)
 
     def start_generation(self) -> None:
-        api_key = self.api_key.text().strip()
         concept = self.concept.toPlainText().strip()
-        if not api_key:
-            QMessageBox.warning(self, "Missing API Key", "Please enter a Grok API key.")
-            return
         source = self.prompt_source.currentData()
         manual_prompt = self.manual_prompt.toPlainText().strip()
+
+        if source != "manual":
+            api_key = self.api_key.text().strip()
+            if not api_key:
+                QMessageBox.warning(self, "Missing API Key", "Please enter a Grok API key.")
+                return
 
         if source != "manual" and not concept:
             QMessageBox.warning(self, "Missing Concept", "Please enter a concept.")
@@ -340,6 +345,10 @@ class MainWindow(QMainWindow):
             return
         if source == "openai" and not self.openai_api_key.text().strip():
             QMessageBox.warning(self, "Missing OpenAI API Key", "Please enter an OpenAI API key.")
+            return
+
+        if source == "manual":
+            self._start_manual_browser_generation(manual_prompt, self.count.value())
             return
 
         config = GrokConfig(
@@ -363,6 +372,152 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self.on_generation_error)
         self.worker.finished.connect(lambda: self.generate_btn.setEnabled(True))
         self.worker.start()
+
+    def _start_manual_browser_generation(self, prompt: str, count: int) -> None:
+        self.manual_generation_queue = [{"prompt": prompt, "variant": idx} for idx in range(1, count + 1)]
+        self.generate_btn.setEnabled(False)
+        self._append_log(
+            "Manual mode uses the embedded browser session (no API key). "
+            "Make sure you are logged into grok.com in the right pane."
+        )
+        self.browser.setUrl(QUrl("https://grok.com/imagine"))
+        self._submit_next_manual_variant()
+
+    def _submit_next_manual_variant(self) -> None:
+        if not self.manual_generation_queue:
+            self.generate_btn.setEnabled(True)
+            self._append_log("Manual browser generation complete.")
+            return
+
+        item = self.manual_generation_queue.pop(0)
+        prompt = item["prompt"]
+        variant = item["variant"]
+        self.pending_manual_variant_for_download = variant
+        self._append_log(f"Submitting manual variant {variant} in browser...")
+
+        escaped_prompt = repr(prompt)
+        script = f"""
+            (() => {{
+                const prompt = {escaped_prompt};
+                const inputCandidates = [
+                    "textarea[placeholder*='Type to imagine' i]",
+                    "input[placeholder*='Type to imagine' i]",
+                    "textarea",
+                    "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                    "[contenteditable='true']",
+                    "input[type='text']"
+                ];
+                const buttonCandidates = [
+                    "button[type='submit']",
+                    "button[aria-label*='Generate' i]",
+                    "button[aria-label*='Imagine' i]",
+                    "button"
+                ];
+
+                const input = inputCandidates.map((s) => document.querySelector(s)).find(Boolean);
+                if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
+
+                input.focus();
+                if (input.isContentEditable) {{
+                    input.textContent = prompt;
+                    input.dispatchEvent(new InputEvent("input", {{ bubbles: true }}));
+                }} else {{
+                    input.value = prompt;
+                    input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                    input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                }}
+
+                let submit = null;
+                for (const selector of buttonCandidates) {{
+                    const buttons = [...document.querySelectorAll(selector)];
+                    submit = buttons.find((b) => /generate|imagine|create/i.test((b.innerText || "") + " " + (b.getAttribute("aria-label") || "")));
+                    if (submit) break;
+                }}
+                if (!submit) return {{ ok: false, error: "Generate button not found" }};
+                submit.click();
+                return {{ ok: true }};
+            }})()
+        """
+
+        def after_submit(result):
+            if not isinstance(result, dict) or not result.get("ok"):
+                self.pending_manual_variant_for_download = None
+                self._append_log(f"ERROR: Manual submit failed for variant {variant}: {result}")
+                self.generate_btn.setEnabled(True)
+                return
+            self._append_log(f"Submitted variant {variant}. Waiting for generated video and triggering browser download...")
+            self._trigger_browser_video_download(variant)
+
+        self.browser.page().runJavaScript(script, after_submit)
+
+    def _trigger_browser_video_download(self, variant: int) -> None:
+        script = f"""
+            (async () => {{
+                const timeoutMs = 420000;
+                const start = Date.now();
+                while (Date.now() - start < timeoutMs) {{
+                    const video = document.querySelector("video");
+                    const source = document.querySelector("video source");
+                    const src = (video && (video.currentSrc || video.src)) || (source && source.src) || "";
+                    if (src) {{
+                        const a = document.createElement("a");
+                        a.href = src;
+                        a.download = `grok_manual_variant_{variant}_${{Date.now()}}.mp4`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        return {{ ok: true, src }};
+                    }}
+                    await new Promise((resolve) => setTimeout(resolve, 3000));
+                }}
+                return {{ ok: false, error: "Timed out waiting for generated video" }};
+            }})()
+        """
+
+        def after_download_trigger(result):
+            if isinstance(result, dict) and result.get("ok"):
+                self._append_log(f"Variant {variant} video detected; browser download requested.")
+                return
+            self.pending_manual_variant_for_download = None
+            self._append_log(f"ERROR: Variant {variant} did not produce a downloadable video in time: {result}")
+            self.generate_btn.setEnabled(True)
+
+        self.browser.page().runJavaScript(script, after_download_trigger)
+
+    def _on_browser_download_requested(self, download) -> None:
+        variant = self.pending_manual_variant_for_download
+        if variant is None:
+            return
+
+        filename = f"video_{int(time.time() * 1000)}_manual_v{variant}.mp4"
+        download.setDownloadDirectory(str(DOWNLOAD_DIR))
+        download.setDownloadFileName(filename)
+        download.accept()
+        self._append_log(f"Downloading manual variant {variant} to {DOWNLOAD_DIR / filename}")
+
+        def on_state_changed(state):
+            if state == download.DownloadState.DownloadCompleted:
+                video_path = DOWNLOAD_DIR / filename
+                self.videos.append(
+                    {
+                        "title": f"Manual Browser Video {variant}",
+                        "prompt": self.manual_prompt.toPlainText().strip(),
+                        "resolution": "web",
+                        "video_file_path": str(video_path),
+                        "source_url": "browser-session",
+                    }
+                )
+                self.video_picker.addItem(f"Manual Browser Video {variant} (web)")
+                self.video_picker.setCurrentIndex(self.video_picker.count() - 1)
+                self._append_log(f"Saved: {video_path}")
+                self.pending_manual_variant_for_download = None
+                self._submit_next_manual_variant()
+            elif state == download.DownloadState.DownloadInterrupted:
+                self._append_log(f"ERROR: Download interrupted for manual variant {variant}.")
+                self.pending_manual_variant_for_download = None
+                self.generate_btn.setEnabled(True)
+
+        download.stateChanged.connect(on_state_changed)
 
     def on_video_finished(self, video: dict) -> None:
         self.videos.append(video)
