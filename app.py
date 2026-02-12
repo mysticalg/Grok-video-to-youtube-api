@@ -478,9 +478,12 @@ class MainWindow(QMainWindow):
                     ];
 
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                    const input = promptSelectors
-                        .flatMap((selector) => [...document.querySelectorAll(selector)])
-                        .find((el) => isVisible(el));
+                    const inputCandidates = [];
+                    promptSelectors.forEach((selector) => {{
+                        const matches = document.querySelectorAll(selector);
+                        for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
+                    }});
+                    const input = inputCandidates.find((el) => isVisible(el));
                     if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
 
                     input.focus();
@@ -504,7 +507,14 @@ class MainWindow(QMainWindow):
                     if (!typedValue.trim()) return {{ ok: false, error: "Prompt field did not accept text" }};
 
                     const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label, span, div";
-                    const clickableAncestor = (el) => el?.closest?.("button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label") || el;
+                    const clickableAncestor = (el) => {{
+                        if (!el) return null;
+                        if (typeof el.closest === 'function') {{
+                            const ancestor = el.closest("button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label");
+                            if (ancestor) return ancestor;
+                        }}
+                        return el;
+                    }};
                     const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(text));
                     const visibleTextElements = (root = document) => [...root.querySelectorAll(interactiveSelector)]
                         .filter((el) => isVisible(el) && (el.textContent || "").trim());
@@ -567,9 +577,12 @@ class MainWindow(QMainWindow):
                         "button[type='submit']",
                         "button[aria-label='Submit']"
                     ];
-                    const submitButton = submitSelectors
-                        .flatMap((selector) => [...document.querySelectorAll(selector)])
-                        .find((el) => isVisible(el) && !el.disabled);
+                    const submitCandidates = [];
+                    submitSelectors.forEach((selector) => {
+                        const matches = document.querySelectorAll(selector);
+                        for (let i = 0; i < matches.length; i += 1) submitCandidates.push(matches[i]);
+                    });
+                    const submitButton = submitCandidates.find((el) => isVisible(el) && !el.disabled);
                     if (!submitButton) return { ok: false, error: "Submit button not found or disabled" };
 
                     const common = { bubbles: true, cancelable: true, composed: true };
