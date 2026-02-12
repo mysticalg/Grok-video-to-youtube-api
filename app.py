@@ -465,8 +465,7 @@ class MainWindow(QMainWindow):
 
                     input.focus();
                     if (input.isContentEditable) {{
-                        document.execCommand("selectAll", false, null);
-                        document.execCommand("insertText", false, prompt);
+                        // Only populate the field. Avoid synthetic key events that can trigger form submit.
                         const sanitize = (value) => value
                             .replace(/&/g, "&amp;")
                             .replace(/</g, "&lt;")
@@ -475,20 +474,16 @@ class MainWindow(QMainWindow):
                         const emptyParagraph = input.querySelector("p.is-empty.is-editor-empty[data-placeholder='Type to imagine']");
                         if (emptyParagraph) {{
                             emptyParagraph.outerHTML = `<p>${{escapedPrompt}}</p>`;
-                        }}
-                        if (!(input.textContent || "").trim()) {{
+                        }} else {{
                             input.innerHTML = `<p>${{escapedPrompt}}</p>`;
                         }}
-                        input.dispatchEvent(new InputEvent("beforeinput", {{ bubbles: true, inputType: "insertText", data: prompt }}));
                         input.dispatchEvent(new InputEvent("input", {{ bubbles: true, inputType: "insertText", data: prompt }}));
-                        input.dispatchEvent(new KeyboardEvent("keyup", {{ bubbles: true, key: " ", code: "Space" }}));
                     }} else {{
                         const proto = Object.getPrototypeOf(input);
                         const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
                         if (valueSetter) valueSetter.call(input, prompt);
                         else input.value = prompt;
                         input.dispatchEvent(new Event("input", {{ bubbles: true }}));
-                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
                     }}
 
                     const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
@@ -640,6 +635,7 @@ class MainWindow(QMainWindow):
         self.openai_api_key.setEnabled(is_openai)
         self.openai_chat_model.setEnabled(is_openai)
         self.chat_model.setEnabled(source == "grok")
+        self.generate_btn.setText("Populate Prompt in Browser" if is_manual else "Generate Video")
 
     def extract_last_frame_from_selected(self) -> None:
         index = self.video_picker.currentIndex()

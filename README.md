@@ -5,6 +5,7 @@ This project is now a **desktop Python GUI app** instead of a Flask web server.
 ## What changed
 
 - No web server routes/pages.
+- Removed legacy Flask template files (`templates/index.html`, `templates/dashboard.html`).
 - Uses a split-pane desktop layout.
 - The **browser is permanently embedded in the right-hand pane** using Qt WebEngine.
 - The left pane contains Grok settings, concept input, generate controls, and logs.
