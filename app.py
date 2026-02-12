@@ -543,8 +543,15 @@ class MainWindow(QMainWindow):
                     if (clickVisibleButtonByAriaLabel("720p") || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i], composer) || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i])) optionsApplied.push("720p");
                     if (clickVisibleButtonByAriaLabel("10s") || clickByText([/^10\s*s(ec(onds?)?)?$/i], composer) || clickByText([/^10\s*s(ec(onds?)?)?$/i])) optionsApplied.push("10s");
                     if (clickVisibleButtonByAriaLabel("16:9") || clickByText([/^16\s*:\s*9$/i], composer) || clickByText([/^16\s*:\s*9$/i])) optionsApplied.push("16:9");
+                    let optionsWindowClosed = false;
+                    if (modelTrigger) optionsWindowClosed = emulateClick(modelTrigger);
+                    if (!optionsWindowClosed) {{
+                        const escEvent = new KeyboardEvent("keydown", {{ key: "Escape", code: "Escape", bubbles: true }});
+                        document.dispatchEvent(escEvent);
+                        optionsWindowClosed = true;
+                    }}
 
-                    return {{ ok: true, filledLength: typedValue.length, optionsRequested, optionsApplied }};
+                    return {{ ok: true, filledLength: typedValue.length, optionsRequested, optionsApplied, optionsWindowClosed }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
@@ -566,13 +573,19 @@ class MainWindow(QMainWindow):
                     if (!submitButton) return { ok: false, error: "Submit button not found or disabled" };
 
                     const common = { bubbles: true, cancelable: true, composed: true };
-                    submitButton.dispatchEvent(new PointerEvent("pointerdown", common));
-                    submitButton.dispatchEvent(new MouseEvent("mousedown", common));
-                    submitButton.dispatchEvent(new PointerEvent("pointerup", common));
-                    submitButton.dispatchEvent(new MouseEvent("mouseup", common));
-                    submitButton.dispatchEvent(new MouseEvent("click", common));
+                    const emulateClick = (el) => {
+                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        el.dispatchEvent(new MouseEvent("mousedown", common));
+                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        el.dispatchEvent(new MouseEvent("mouseup", common));
+                        el.dispatchEvent(new MouseEvent("click", common));
+                    };
 
-                    return { ok: true, submitted: true };
+                    emulateClick(submitButton);
+                    submitButton.dispatchEvent(new MouseEvent("dblclick", common));
+                    emulateClick(submitButton);
+
+                    return { ok: true, submitted: true, doubleClicked: true };
                 } catch (err) {
                     return { ok: false, error: String(err && err.stack ? err.stack : err) };
                 }
@@ -589,11 +602,12 @@ class MainWindow(QMainWindow):
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
             options_applied = result.get("optionsApplied") if isinstance(result, dict) else []
+            options_window_closed = bool(result.get("optionsWindowClosed")) if isinstance(result, dict) else False
             requested_summary = ", ".join(options_requested) if options_requested else "none"
             applied_summary = ", ".join(options_applied) if options_applied else "none detected"
             self._append_log(
                 f"Prompt populated for variant {variant}; options requested: {requested_summary}; "
-                f"options applied: {applied_summary}."
+                f"options applied: {applied_summary}; options window closed: {options_window_closed}."
             )
 
             def after_delayed_submit(submit_result):
@@ -604,7 +618,8 @@ class MainWindow(QMainWindow):
                     self.generate_btn.setEnabled(True)
                     return
                 self._append_log(
-                    f"Submitted manual variant {variant} after {submit_delay_ms}ms delay; waiting for generation to auto-download."
+                    f"Submitted manual variant {variant} after {submit_delay_ms}ms delay (double-click submit); "
+                    "waiting for generation to auto-download."
                 )
                 self._trigger_browser_video_download(variant)
 
