@@ -396,25 +396,20 @@ class MainWindow(QMainWindow):
         self._append_log(f"Submitting manual variant {variant} in browser...")
 
         escaped_prompt = repr(prompt)
-        script = f"""
+        script = rf"""
             (() => {{
                 const prompt = {escaped_prompt};
-                const inputCandidates = [
+                const promptSelectors = [
                     "textarea[placeholder*='Type to imagine' i]",
                     "input[placeholder*='Type to imagine' i]",
-                    "textarea",
                     "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                    "[contenteditable='true']",
-                    "input[type='text']"
-                ];
-                const buttonCandidates = [
-                    "button[type='submit']",
-                    "button[aria-label*='Generate' i]",
-                    "button[aria-label*='Imagine' i]",
-                    "button"
+                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
                 ];
 
-                const input = inputCandidates.map((s) => document.querySelector(s)).find(Boolean);
+                const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                const input = promptSelectors
+                    .flatMap((selector) => [...document.querySelectorAll(selector)])
+                    .find((el) => isVisible(el));
                 if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
 
                 input.focus();
@@ -427,12 +422,32 @@ class MainWindow(QMainWindow):
                     input.dispatchEvent(new Event("change", {{ bubbles: true }}));
                 }}
 
+                const buttonScore = (button) => {{
+                    const text = ((button.innerText || "") + " " + (button.getAttribute("aria-label") || "")).toLowerCase();
+                    if (!text.trim()) return 0;
+                    if (text.includes("project")) return 0;
+                    if (/\bgenerate\b|\bimagine\b|\bcreate\s+video\b/.test(text)) return 3;
+                    if (text.includes("create")) return 1;
+                    return 0;
+                }};
+
                 let submit = null;
-                for (const selector of buttonCandidates) {{
-                    const buttons = [...document.querySelectorAll(selector)];
-                    submit = buttons.find((b) => /generate|imagine|create/i.test((b.innerText || "") + " " + (b.getAttribute("aria-label") || "")));
-                    if (submit) break;
+                const form = input.closest("form");
+                if (form) {{
+                    submit = [...form.querySelectorAll("button, [role='button']")]
+                        .filter(isVisible)
+                        .sort((a, b) => buttonScore(b) - buttonScore(a))
+                        .find((b) => buttonScore(b) > 0) || null;
                 }}
+
+                if (!submit) {{
+                    const root = input.closest("section, main, article, div") || document.body;
+                    submit = [...root.querySelectorAll("button, [role='button']")]
+                        .filter(isVisible)
+                        .sort((a, b) => buttonScore(b) - buttonScore(a))
+                        .find((b) => buttonScore(b) > 0) || null;
+                }}
+
                 if (!submit) return {{ ok: false, error: "Generate button not found" }};
                 submit.click();
                 return {{ ok: true }};
