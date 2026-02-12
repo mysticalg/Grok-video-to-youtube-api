@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Grok Video Studio - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="container">
+      <header class="row spread">
+        <h1>Welcome, {{ username }}</h1>
+        <a href="{{ url_for('logout') }}">Logout</a>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <ul class="flashes">
+        {% for category, message in messages %}
+        <li class="{{ category }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% endwith %}
+
+      <section class="card">
+        <h2>API settings (stored in your current session)</h2>
+        <form method="post">
+          <label>Grok API Key
+            <input name="grok_api_key" value="{{ grok_api_key }}" placeholder="xai-..." />
+          </label>
+          <div class="row">
+            <label>Chat model <input name="chat_model" value="{{ chat_model }}" /></label>
+            <label>Video model <input name="image_model" value="{{ image_model }}" /></label>
+          </div>
+          <label>YouTube OAuth Client Secret JSON
+            <textarea name="youtube_client_secret_json" rows="6" placeholder='{"installed":{...}}'>{{ youtube_client_secret_json }}</textarea>
+          </label>
+          <button type="submit">Save Settings</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Generate prompt + 10s video (720p fallback to 420p)</h2>
+        <form method="post" action="{{ url_for('generate') }}">
+          <label>Your concept / idea
+            <textarea name="concept" rows="5" placeholder="A neon city skyline where flying taxis weave through a storm at dusk"></textarea>
+          </label>
+          <button type="submit">Generate Prompt & Video</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Generated output</h2>
+        <p><strong>Prompt:</strong> {{ session.get('generated_prompt', 'No prompt generated yet.') }}</p>
+        <p><strong>Resolution:</strong> {{ session.get('video_resolution', 'n/a') }}</p>
+        <p>
+          <a href="{{ url_for('download') }}">Download latest generated video</a>
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Upload to YouTube</h2>
+        <form method="post" action="{{ url_for('youtube_upload') }}">
+          <label>Title <input name="title" value="{{ session.get('generated_title', '') }}"></label>
+          <label>Description <textarea name="description" rows="4">{{ session.get('generated_description', '') }}</textarea></label>
+          <label>Hashtags <input name="hashtags" value="{{ session.get('generated_hashtags', '') }}" placeholder="#ai #grok #shorts"/></label>
+          <button type="submit">Upload to YouTube (Private)</button>
+        </form>
+        {% if session.get('youtube_video_id') %}
+          <p><strong>Latest YouTube Video ID:</strong> {{ session.get('youtube_video_id') }}</p>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

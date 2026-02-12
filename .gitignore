@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+users.db
+downloads/
+youtube_token_*.json

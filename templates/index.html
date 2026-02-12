@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Grok Video Studio - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="container narrow">
+      <h1>Grok Video Studio</h1>
+      <p>Login or create an account to start generating videos.</p>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <ul class="flashes">
+        {% for category, message in messages %}
+        <li class="{{ category }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% endwith %}
+
+      <form method="post" class="card">
+        <label>Username <input name="username" required></label>
+        <label>Password <input type="password" name="password" required></label>
+        <div class="row">
+          <button type="submit" name="action" value="login">Login</button>
+          <button type="submit" name="action" value="register" class="alt">Register</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>
