@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -464,26 +465,41 @@ class MainWindow(QMainWindow):
             f"then submitting after {submit_delay_ms}ms..."
         )
 
-        escaped_prompt = repr(prompt)
+        escaped_prompt = json.dumps(prompt)
         script = rf"""
             (() => {{
                 try {{
                     const prompt = {escaped_prompt};
-                    const promptSelectors = [
-                        "textarea[placeholder*='Type to imagine' i]",
-                        "input[placeholder*='Type to imagine' i]",
-                        "div.tiptap.ProseMirror[contenteditable='true']",
-                        "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
-                    ];
-
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const inputSelectors = [
+                        "textarea",
+                        "input[type='text']",
+                        "div.tiptap.ProseMirror[contenteditable='true']",
+                        "[contenteditable='true']"
+                    ];
+                    const roots = [document];
+                    for (const el of document.querySelectorAll("*")) {{
+                        if (el.shadowRoot) roots.push(el.shadowRoot);
+                    }}
+                    const matchesPromptHint = (el) => {{
+                        const text = [
+                            el?.getAttribute?.("placeholder") || "",
+                            el?.getAttribute?.("aria-label") || "",
+                            el?.getAttribute?.("data-placeholder") || "",
+                            el?.id || "",
+                            el?.className || ""
+                        ].join(" ").toLowerCase();
+                        return text.includes("type to imagine") || text.includes("imagine") || text.includes("prompt");
+                    }};
                     const inputCandidates = [];
-                    promptSelectors.forEach((selector) => {{
-                        const matches = document.querySelectorAll(selector);
-                        for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
-                    }});
-                    const input = inputCandidates.find((el) => isVisible(el));
+                    for (const root of roots) {{
+                        for (const selector of inputSelectors) {{
+                            const matches = root.querySelectorAll(selector);
+                            for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
+                        }}
+                    }}
+                    const input = inputCandidates.find((el) => isVisible(el) && matchesPromptHint(el))
+                        || inputCandidates.find((el) => isVisible(el));
                     if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
 
                     input.focus();
@@ -561,7 +577,37 @@ class MainWindow(QMainWindow):
                         optionsWindowClosed = true;
                     }}
 
-                    return {{ ok: true, filledLength: typedValue.length, optionsRequested, optionsApplied, optionsWindowClosed }};
+                    return {{ ok: true, filledLength: typedValue.length, optionsRequested, optionsApplied, optionsWindowClosed, inputTag: input.tagName }};
+                }} catch (err) {{
+                    return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
+                }}
+            }})()
+        """
+
+        fallback_script = rf"""
+            (() => {{
+                try {{
+                    const prompt = {escaped_prompt};
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const active = document.activeElement;
+                    const candidates = [
+                        active,
+                        ...document.querySelectorAll("textarea, input[type='text'], [contenteditable='true']")
+                    ].filter(Boolean);
+                    const input = candidates.find((el) => isVisible(el));
+                    if (!input) return {{ ok: false, error: "Fallback could not find any visible prompt input" }};
+
+                    input.focus();
+                    if (input.isContentEditable) {{
+                        input.textContent = prompt;
+                    }} else {{
+                        input.value = prompt;
+                    }}
+                    input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                    input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+
+                    const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
+                    return {{ ok: !!typedValue.trim(), error: typedValue.trim() ? "" : "Fallback input remained empty" }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
@@ -606,9 +652,19 @@ class MainWindow(QMainWindow):
         """
 
         def after_submit(result):
+            if not isinstance(result, dict):
+                self._append_log(
+                    f"Manual prompt script returned an unexpected result for variant {variant}: {result!r}. "
+                    "Retrying with fallback input strategy..."
+                )
+                self.browser.page().runJavaScript(fallback_script, after_submit)
+                return
+
             if not isinstance(result, dict) or not result.get("ok"):
                 self.pending_manual_variant_for_download = None
                 error_detail = result.get("error") if isinstance(result, dict) else result
+                if not error_detail:
+                    error_detail = "No JavaScript error details returned by embedded browser."
                 self._append_log(f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}")
                 self.generate_btn.setEnabled(True)
                 return
