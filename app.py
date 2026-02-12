@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
-        self._append_log(f"Submitting manual variant {variant} in browser...")
+        self._append_log(f"Populating prompt for manual variant {variant} in browser...")
 
         escaped_prompt = repr(prompt)
         script = rf"""
@@ -494,16 +494,6 @@ class MainWindow(QMainWindow):
                     const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
                     if (!typedValue.trim()) return {{ ok: false, error: "Prompt field did not accept text" }};
 
-                    const form = input.closest("form") || null;
-                    const submitCandidates = form
-                        ? [...form.querySelectorAll("button[type='submit'], button[aria-label*='submit' i], [role='button'][aria-label*='submit' i]")]
-                        : [...document.querySelectorAll("button[type='submit'], button[aria-label*='submit' i]")];
-                    const submit = submitCandidates.find((el) => isVisible(el));
-                    if (!submit) return {{ ok: false, error: "Submit button not found" }};
-
-                    if (submit.disabled) return {{ ok: false, error: "Submit button stayed disabled after prompt fill" }};
-
-                    submit.dispatchEvent(new MouseEvent("click", {{ bubbles: true, cancelable: true, composed: true }}));
                     return {{ ok: true, filledLength: typedValue.length }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
@@ -515,11 +505,15 @@ class MainWindow(QMainWindow):
             if not isinstance(result, dict) or not result.get("ok"):
                 self.pending_manual_variant_for_download = None
                 error_detail = result.get("error") if isinstance(result, dict) else result
-                self._append_log(f"ERROR: Manual submit failed for variant {variant}: {error_detail!r}")
+                self._append_log(f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}")
                 self.generate_btn.setEnabled(True)
                 return
-            self._append_log(f"Submitted variant {variant}. Waiting for generated video and triggering browser download...")
-            self._trigger_browser_video_download(variant)
+            self.pending_manual_variant_for_download = None
+            self.manual_generation_queue.clear()
+            self._append_log(
+                f"Prompt populated for variant {variant}. Auto-submit is disabled, so review/edit it in the browser and submit manually."
+            )
+            self.generate_btn.setEnabled(True)
 
         self.browser.page().runJavaScript(script, after_submit)
 
