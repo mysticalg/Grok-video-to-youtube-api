@@ -425,7 +425,7 @@ class MainWindow(QMainWindow):
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
-        self._append_log(f"Populating prompt for manual variant {variant} in browser...")
+        self._append_log(f"Populating prompt for manual variant {variant} in browser and submitting...")
 
         escaped_prompt = repr(prompt)
         script = rf"""
@@ -466,7 +466,42 @@ class MainWindow(QMainWindow):
                     const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
                     if (!typedValue.trim()) return {{ ok: false, error: "Prompt field did not accept text" }};
 
-                    return {{ ok: true, filledLength: typedValue.length }};
+                    const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label, span, div";
+                    const clickableAncestor = (el) => el?.closest?.("button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label") || el;
+                    const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(text));
+                    const visibleTextElements = (root = document) => [...root.querySelectorAll(interactiveSelector)]
+                        .filter((el) => isVisible(el) && (el.textContent || "").trim());
+
+                    const clickByText = (patterns, root = document) => {{
+                        const candidate = visibleTextElements(root).find((el) => matchesAny((el.textContent || "").trim(), patterns));
+                        const target = clickableAncestor(candidate);
+                        if (!target) return false;
+                        target.click();
+                        return true;
+                    }};
+
+                    const composer = input.closest("form") || input.parentElement || document;
+                    clickByText([/video/i], composer) || clickByText([/video/i]);
+                    clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i], composer) || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i]);
+                    clickByText([/10\s*s(ec(onds?)?)?/i], composer) || clickByText([/10\s*s(ec(onds?)?)?/i]);
+
+                    const submitSelectors = [
+                        "button[type='submit'][aria-label='Submit']",
+                        "button[type='submit']",
+                        "button[aria-label='Submit']"
+                    ];
+
+                    const submitButton = submitSelectors
+                        .flatMap((selector) => [...document.querySelectorAll(selector)])
+                        .find((el) => isVisible(el) && !el.disabled)
+                        || visibleTextElements(composer)
+                            .map((el) => clickableAncestor(el))
+                            .find((el) => el && isVisible(el) && !el.disabled && matchesAny((el.textContent || "").trim(), [/submit/i, /generate/i, /create/i]));
+                    if (!submitButton) return {{ ok: false, error: "Submit button not found or disabled" }};
+
+                    submitButton.click();
+
+                    return {{ ok: true, filledLength: typedValue.length, submitted: true, optionsRequested: ["video", "720p", "10s"] }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
@@ -480,12 +515,8 @@ class MainWindow(QMainWindow):
                 self._append_log(f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}")
                 self.generate_btn.setEnabled(True)
                 return
-            self.pending_manual_variant_for_download = None
-            self.manual_generation_queue.clear()
-            self._append_log(
-                f"Prompt populated for variant {variant}. Auto-submit is disabled, so review/edit it in the browser and submit manually."
-            )
-            self.generate_btn.setEnabled(True)
+            self._append_log(f"Prompt populated for variant {variant}; requested Video + 720p + 10s, submitted, and now waiting for generation to auto-download.")
+            self._trigger_browser_video_download(variant)
 
         self.browser.page().runJavaScript(script, after_submit)
 
