@@ -449,12 +449,11 @@ class MainWindow(QMainWindow):
                 try {{
                     const prompt = {escaped_prompt};
                     const promptSelectors = [
+                        "textarea[placeholder*='Type to imagine' i]",
+                        "input[placeholder*='Type to imagine' i]",
                         "div.tiptap.ProseMirror[contenteditable='true']",
                         "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
-                        "[role='textbox'][aria-label*='Type to imagine' i]",
-                        "textarea[placeholder*='Type to imagine' i]",
-                        "input[placeholder*='Type to imagine' i]"
+                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
                     ];
 
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
@@ -465,25 +464,19 @@ class MainWindow(QMainWindow):
 
                     input.focus();
                     if (input.isContentEditable) {{
-                        // Only populate the field. Avoid synthetic key events that can trigger form submit.
-                        const sanitize = (value) => value
-                            .replace(/&/g, "&amp;")
-                            .replace(/</g, "&lt;")
-                            .replace(/>/g, "&gt;");
-                        const escapedPrompt = sanitize(prompt);
-                        const emptyParagraph = input.querySelector("p.is-empty.is-editor-empty[data-placeholder='Type to imagine']");
-                        if (emptyParagraph) {{
-                            emptyParagraph.outerHTML = `<p>${{escapedPrompt}}</p>`;
-                        }} else {{
-                            input.innerHTML = `<p>${{escapedPrompt}}</p>`;
-                        }}
-                        input.dispatchEvent(new InputEvent("input", {{ bubbles: true, inputType: "insertText", data: prompt }}));
+                        // Only populate the field; do not synthesize Enter/submit key events.
+                        const paragraph = document.createElement("p");
+                        paragraph.textContent = prompt;
+                        input.replaceChildren(paragraph);
+                        input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
                     }} else {{
                         const proto = Object.getPrototypeOf(input);
                         const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
                         if (valueSetter) valueSetter.call(input, prompt);
                         else input.value = prompt;
                         input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
                     }}
 
                     const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
