@@ -1278,12 +1278,20 @@ class MainWindow(QMainWindow):
                             return true;
                         };
 
-                        const buttons = [...document.querySelectorAll("button[aria-label='Make video']")]
-                            .filter((btn) => isVisible(btn) && !btn.disabled);
-                        if (!buttons.length) return { ok: true, clicked: false, count: 0 };
+                        const listItems = [...document.querySelectorAll("div[role='listitem']")]
+                            .filter((item) => isVisible(item));
+                        if (!listItems.length) return { ok: true, clicked: false, count: 0 };
 
-                        const clicked = emulateClick(buttons[0]);
-                        return { ok: clicked, clicked, count: buttons.length };
+                        const firstItem = listItems[0];
+                        const targetButton = [...firstItem.querySelectorAll("button[aria-label='Make video']")]
+                            .find((btn) => isVisible(btn) && !btn.disabled);
+                        if (!targetButton) return { ok: true, clicked: false, count: listItems.length };
+
+                        const clicked = emulateClick(targetButton);
+                        if (clicked) {
+                            firstItem.setAttribute("data-manual-make-video-clicked", "1");
+                        }
+                        return { ok: clicked, clicked, count: listItems.length };
                     } catch (err) {
                         return { ok: false, error: String(err && err.stack ? err.stack : err) };
                     }
@@ -1343,8 +1351,8 @@ class MainWindow(QMainWindow):
                 const downloadButton = [...document.querySelectorAll("button[aria-label='Download'], button")]
                     .find((btn) => isVisible(btn) && !btn.disabled && /download/i.test((btn.getAttribute("aria-label") || btn.textContent || "").trim()));
 
-                const mediaCard = [...document.querySelectorAll("div[class*='group/media-post-masonry-card']")]
-                    .find((card) => isVisible(card) && (card.querySelector("video") || card.querySelector("img[alt*='Generated image' i]")));
+                const mediaListItem = [...document.querySelectorAll("div[role='listitem']")]
+                    .find((item) => isVisible(item) && (item.querySelector("video") || item.querySelector("img[alt*='Generated image' i]")));
 
                 if (!redoButton) {
                     return { status: "waiting-for-redo" };
@@ -1356,14 +1364,14 @@ class MainWindow(QMainWindow):
                     };
                 }
 
-                if (mediaCard) {
-                    const clickedBefore = mediaCard.getAttribute("data-manual-video-open-clicked") === "1";
-                    const clicked = emulateClick(mediaCard);
+                if (mediaListItem) {
+                    const clickedBefore = mediaListItem.getAttribute("data-manual-video-open-clicked") === "1";
+                    const clicked = clickedBefore ? false : emulateClick(mediaListItem);
                     if (clicked) {
-                        mediaCard.setAttribute("data-manual-video-open-clicked", "1");
+                        mediaListItem.setAttribute("data-manual-video-open-clicked", "1");
                     }
                     return {
-                        status: clicked ? (clickedBefore ? "video-page-reopen-clicked" : "video-page-open-clicked") : "video-page-card-visible",
+                        status: clicked ? "video-page-open-clicked" : (clickedBefore ? "video-page-open-already-attempted" : "video-page-listitem-visible"),
                     };
                 }
 
@@ -1409,10 +1417,10 @@ class MainWindow(QMainWindow):
                 self.manual_download_poll_timer.start(3000)
                 return
 
-            if status in {"video-page-open-clicked", "video-page-reopen-clicked", "video-page-card-visible"}:
+            if status in {"video-page-open-clicked", "video-page-open-already-attempted", "video-page-listitem-visible"}:
                 if status == "video-page-open-clicked":
                     self._append_log(
-                        f"Variant {current_variant}: opened generated video card to load the video page and Download button."
+                        f"Variant {current_variant}: opened generated media list item to load the video page and Download button."
                     )
                 self.manual_download_poll_timer.start(3000)
                 return
