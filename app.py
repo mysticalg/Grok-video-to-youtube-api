@@ -458,8 +458,8 @@ class MainWindow(QMainWindow):
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
-        submit_delay_ms = 700
-        forced_submit_delay_ms = 700
+        submit_delay_ms = 0
+        forced_submit_delay_ms = 0
         self._append_log(
             f"Populating prompt for manual variant {variant} in browser, setting video options, "
             f"then submitting after {submit_delay_ms}ms..."
@@ -563,7 +563,18 @@ class MainWindow(QMainWindow):
                         optionsWindowClosed = true;
                     }}
 
-                    return {{ ok: true, filledLength: typedValue.length, optionsRequested, optionsApplied, optionsWindowClosed }};
+                    const requiredOptions = ["video", "720p", "10s", "16:9"];
+                    const missingOptions = requiredOptions.filter((option) => !optionsApplied.includes(option));
+
+                    return {{
+                        ok: true,
+                        filledLength: typedValue.length,
+                        optionsRequested,
+                        optionsApplied,
+                        requiredOptions,
+                        missingOptions,
+                        optionsWindowClosed
+                    }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
@@ -700,23 +711,38 @@ class MainWindow(QMainWindow):
                         )
                         self._trigger_browser_video_download(variant)
 
-                    QTimer.singleShot(
-                        forced_submit_delay_ms,
-                        lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit)
-                    )
+                    if forced_submit_delay_ms > 0:
+                        QTimer.singleShot(
+                            forced_submit_delay_ms,
+                            lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit)
+                        )
+                    else:
+                        self.browser.page().runJavaScript(submit_script, after_forced_submit)
 
                 self.browser.page().runJavaScript(filled_prompt_check_script, after_fill_check)
                 return
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
             options_applied = result.get("optionsApplied") if isinstance(result, dict) else []
+            missing_options = result.get("missingOptions") if isinstance(result, dict) else []
             options_window_closed = bool(result.get("optionsWindowClosed")) if isinstance(result, dict) else False
             requested_summary = ", ".join(options_requested) if options_requested else "none"
             applied_summary = ", ".join(options_applied) if options_applied else "none detected"
+            missing_summary = ", ".join(missing_options) if missing_options else "none"
             self._append_log(
                 f"Prompt populated for variant {variant}; options requested: {requested_summary}; "
-                f"options applied: {applied_summary}; options window closed: {options_window_closed}."
+                f"options applied: {applied_summary}; missing required options: {missing_summary}; "
+                f"options window closed: {options_window_closed}."
             )
+
+            if missing_options:
+                self.pending_manual_variant_for_download = None
+                self._append_log(
+                    f"ERROR: Required video options were not set before submit for variant {variant}: "
+                    f"{missing_summary}. Submission has been canceled so options can be corrected."
+                )
+                self.generate_btn.setEnabled(True)
+                return
 
             def after_delayed_submit(submit_result):
                 if not isinstance(submit_result, dict) or not submit_result.get("ok"):
@@ -726,12 +752,16 @@ class MainWindow(QMainWindow):
                     self.generate_btn.setEnabled(True)
                     return
                 self._append_log(
-                    f"Submitted manual variant {variant} after {submit_delay_ms}ms delay (double-click submit); "
+                    "Submitted manual variant "
+                    f"{variant} immediately after confirming options (double-click submit); "
                     "waiting for generation to auto-download."
                 )
                 self._trigger_browser_video_download(variant)
 
-            QTimer.singleShot(submit_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
+            if submit_delay_ms > 0:
+                QTimer.singleShot(submit_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
+            else:
+                self.browser.page().runJavaScript(submit_script, after_delayed_submit)
 
         self.browser.page().runJavaScript(script, after_submit)
 
