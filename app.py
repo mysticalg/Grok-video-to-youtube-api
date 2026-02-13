@@ -278,6 +278,8 @@ class MainWindow(QMainWindow):
         self.manual_download_deadline: float | None = None
         self.manual_download_click_sent = False
         self.manual_download_started_at: float | None = None
+        self.manual_requires_image_pick = True
+        self.manual_image_make_video_clicked = False
         self.manual_download_poll_timer = QTimer(self)
         self.manual_download_poll_timer.setSingleShot(True)
         self.manual_download_poll_timer.timeout.connect(self._poll_for_manual_video)
@@ -717,7 +719,7 @@ class MainWindow(QMainWindow):
         self.manual_download_click_sent = False
         action_delay_ms = 2000
         self._append_log(
-            f"Populating prompt for manual variant {variant} in browser, setting video options, "
+            f"Populating prompt for manual variant {variant} in browser, setting image options, "
             f"then force submitting with {action_delay_ms}ms delays between each action. Remaining repeats after this: {remaining_count}."
         )
 
@@ -924,7 +926,7 @@ class MainWindow(QMainWindow):
                         return emulateClick(button);
                     };
 
-                    const requiredOptions = ["video", "720p", "10s", "16:9"];
+                    const requiredOptions = ["image"];
                     const optionsRequested = [];
                     const optionsApplied = [];
 
@@ -948,19 +950,10 @@ class MainWindow(QMainWindow):
                         if (selected) optionsApplied.push(name);
                     };
 
-                    applyOption("video", [/^video$/i], null);
-                    applyOption("720p", [/720\s*p/i, /1280\s*[x×]\s*720/i], "720p");
-                    applyOption("10s", [/^10\s*s(ec(onds?)?)?$/i], "10s");
-                    applyOption("16:9", [/^16\s*:\s*9$/i], "16:9");
+                    applyOption("image", [/^image$/i], null);
 
                     const missingOptions = requiredOptions.filter((option) => {
-                        const patterns = option === "video"
-                            ? [/^video$/i]
-                            : option === "720p"
-                                ? [/720\s*p/i, /1280\s*[x×]\s*720/i]
-                                : option === "10s"
-                                    ? [/^10\s*s(ec(onds?)?)?$/i]
-                                    : [/^16\s*:\s*9$/i];
+                        const patterns = [/^image$/i];
                         return !(hasSelectedByText(patterns, composer) || hasSelectedByText(patterns));
                     });
 
@@ -1120,8 +1113,8 @@ class MainWindow(QMainWindow):
 
                     self._append_log(
                         "Submitted manual variant "
-                        f"{variant} after prompt/options staged delays (double-click submit); "
-                        "waiting for generation to auto-download."
+                        f"{variant} after prompt/options staged delays; "
+                        "waiting for image results and then triggering video generation from the first image."
                     )
                     self._trigger_browser_video_download(variant)
 
@@ -1199,7 +1192,7 @@ class MainWindow(QMainWindow):
                 else:
                     button_label = submit_result.get("buttonAriaLabel") or submit_result.get("buttonText") or "Make video"
                     self._append_log(f"Continue-mode submit clicked '{button_label}' for variant {variant}.")
-                self._trigger_browser_video_download(variant)
+                self._trigger_browser_video_download(variant, require_image_pick=False)
 
             QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(continue_submit_script, _after_continue_submit))
 
@@ -1239,10 +1232,12 @@ class MainWindow(QMainWindow):
 
         self.browser.page().runJavaScript(script, after_submit)
 
-    def _trigger_browser_video_download(self, variant: int) -> None:
+    def _trigger_browser_video_download(self, variant: int, require_image_pick: bool = True) -> None:
         self.manual_download_deadline = time.time() + 420
         self.manual_download_click_sent = False
         self.manual_download_started_at = time.time()
+        self.manual_requires_image_pick = require_image_pick
+        self.manual_image_make_video_clicked = not require_image_pick
         self.manual_download_poll_timer.start(0)
 
     def _poll_for_manual_video(self) -> None:
@@ -1256,6 +1251,8 @@ class MainWindow(QMainWindow):
             self.manual_download_click_sent = False
             self.manual_download_started_at = None
             self.manual_download_deadline = None
+            self.manual_requires_image_pick = True
+            self.manual_image_make_video_clicked = False
             self._append_log(f"ERROR: Variant {variant} did not produce a downloadable video in time.")
             if self.continue_from_frame_active:
                 self._append_log("Continue-from-last-frame stopped because download polling timed out.")
@@ -1263,6 +1260,53 @@ class MainWindow(QMainWindow):
                 self.continue_from_frame_target_count = 0
                 self.continue_from_frame_completed = 0
                 self.continue_from_frame_prompt = ""
+            return
+
+        if self.manual_requires_image_pick and not self.manual_image_make_video_clicked:
+            pick_image_script = r"""
+                (() => {
+                    try {
+                        const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                        const common = { bubbles: true, cancelable: true, composed: true };
+                        const emulateClick = (el) => {
+                            if (!el || !isVisible(el) || el.disabled) return false;
+                            try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
+                            el.dispatchEvent(new MouseEvent("mousedown", common));
+                            try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
+                            el.dispatchEvent(new MouseEvent("mouseup", common));
+                            el.dispatchEvent(new MouseEvent("click", common));
+                            return true;
+                        };
+
+                        const buttons = [...document.querySelectorAll("button[aria-label='Make video']")]
+                            .filter((btn) => isVisible(btn) && !btn.disabled);
+                        if (!buttons.length) return { ok: true, clicked: false, count: 0 };
+
+                        const clicked = emulateClick(buttons[0]);
+                        return { ok: clicked, clicked, count: buttons.length };
+                    } catch (err) {
+                        return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                    }
+                })()
+            """
+
+            def after_pick_image(result):
+                ok = isinstance(result, dict) and bool(result.get("ok", True))
+                clicked = isinstance(result, dict) and bool(result.get("clicked"))
+                if not ok:
+                    error_detail = result.get("error") if isinstance(result, dict) else result
+                    self._append_log(
+                        f"WARNING: Could not pick first generated image for variant {variant}: {error_detail!r}. Retrying."
+                    )
+                elif clicked:
+                    self.manual_image_make_video_clicked = True
+                    self._append_log(
+                        f"Variant {variant}: clicked 'Make video' on the first generated image; waiting for video output."
+                    )
+
+                self.manual_download_poll_timer.start(3000)
+
+            self.browser.page().runJavaScript(pick_image_script, after_pick_image)
             return
 
         script = """
@@ -1405,6 +1449,8 @@ class MainWindow(QMainWindow):
                     self.manual_download_click_sent = False
                     self.manual_download_started_at = None
                     self.manual_download_deadline = None
+                    self.manual_requires_image_pick = True
+                    self.manual_image_make_video_clicked = False
 
                     if self.continue_from_frame_active:
                         self._retry_continue_after_small_download(variant)
@@ -1433,6 +1479,8 @@ class MainWindow(QMainWindow):
                 self.manual_download_click_sent = False
                 self.manual_download_started_at = None
                 self.manual_download_deadline = None
+                self.manual_requires_image_pick = True
+                self.manual_image_make_video_clicked = False
                 if self.continue_from_frame_active:
                     self.continue_from_frame_completed += 1
                     if self.continue_from_frame_completed < self.continue_from_frame_target_count:
@@ -1452,6 +1500,8 @@ class MainWindow(QMainWindow):
                 self.manual_download_click_sent = False
                 self.manual_download_started_at = None
                 self.manual_download_deadline = None
+                self.manual_requires_image_pick = True
+                self.manual_image_make_video_clicked = False
                 self.continue_from_frame_active = False
                 self.continue_from_frame_target_count = 0
                 self.continue_from_frame_completed = 0
