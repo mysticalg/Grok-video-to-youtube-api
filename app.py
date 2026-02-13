@@ -1327,6 +1327,39 @@ class MainWindow(QMainWindow):
                             try { return el.closest(selector); } catch (_) { return null; }
                         };
 
+                        const generatedImageNodes = [...document.querySelectorAll("img[alt='Generated image'], img[alt*='Generated image' i]")]
+                            .filter((img) => isVisible(img));
+
+                        const preferredGeneratedImage = generatedImageNodes.find((img) => {
+                            const src = (img.getAttribute("src") || "").toLowerCase();
+                            return src.includes("/generated/") && src.includes("preview_image");
+                        }) || generatedImageNodes[0] || null;
+
+                        if (preferredGeneratedImage) {
+                            const generatedCard =
+                                safeClosest(preferredGeneratedImage, "div[role='listitem']") ||
+                                safeClosest(preferredGeneratedImage, "article") ||
+                                safeClosest(preferredGeneratedImage, "li") ||
+                                preferredGeneratedImage.parentElement;
+
+                            const generatedOpenTarget =
+                                safeClosest(preferredGeneratedImage, "a, button, [role='button'], [tabindex]") ||
+                                generatedCard ||
+                                preferredGeneratedImage;
+
+                            const clicked = emulateClick(generatedOpenTarget);
+                            if (clicked && generatedCard) {
+                                generatedCard.setAttribute("data-manual-image-open-clicked", "1");
+                            }
+
+                            return {
+                                ok: true,
+                                clicked,
+                                count: generatedImageNodes.length,
+                                usedGeneratedImageSignal: true,
+                            };
+                        }
+
                         const images = [...document.querySelectorAll("img, picture img, canvas")]
                             .filter((node) => isVisible(node));
                         if (!images.length) return { ok: true, clicked: false, count: 0 };
@@ -1360,7 +1393,7 @@ class MainWindow(QMainWindow):
                         if (clicked && candidate.card) {
                             candidate.card.setAttribute("data-manual-image-open-clicked", "1");
                         }
-                        return { ok: true, clicked, count: images.length };
+                        return { ok: true, clicked, count: images.length, usedGeneratedImageSignal: false };
                     } catch (err) {
                         return { ok: false, error: String(err && err.stack ? err.stack : err) };
                     }
@@ -1371,6 +1404,7 @@ class MainWindow(QMainWindow):
                 ok = not isinstance(result, dict) or bool(result.get("ok", True))
                 clicked = isinstance(result, dict) and bool(result.get("clicked"))
                 skipped_image_pick = isinstance(result, dict) and bool(result.get("skippedImagePick"))
+                used_generated_image_signal = isinstance(result, dict) and bool(result.get("usedGeneratedImageSignal"))
                 if not ok:
                     error_detail = result.get("error") if isinstance(result, dict) else result
                     self._append_log(
@@ -1383,9 +1417,14 @@ class MainWindow(QMainWindow):
                             f"Variant {variant}: video generation prompt is already visible; skipping image-pick step."
                         )
                     else:
-                        self._append_log(
-                            f"Variant {variant}: opened the first generated image/list item to load the video generation page."
-                        )
+                        if used_generated_image_signal:
+                            self._append_log(
+                                f"Variant {variant}: detected a 'Generated image' list item and opened it to load the video generation page."
+                            )
+                        else:
+                            self._append_log(
+                                f"Variant {variant}: opened the first generated image/list item to load the video generation page."
+                            )
 
                 self.manual_download_poll_timer.start(3000)
 
