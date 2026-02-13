@@ -602,7 +602,7 @@ class MainWindow(QMainWindow):
             "No navigation or reload will happen."
         )
         self._append_log(f"Manual mode queued with repeat count={count}.")
-        self._append_log("Attempting to populate the visible 'Type to imagine' prompt box on the current page...")
+        self._append_log("Attempting to populate the visible Grok prompt box on the current page...")
         self._submit_next_manual_variant()
 
     def _start_continue_iteration(self) -> None:
@@ -686,9 +686,21 @@ class MainWindow(QMainWindow):
                     const promptSelectors = [
                         "textarea[placeholder*='Type to imagine' i]",
                         "input[placeholder*='Type to imagine' i]",
+                        "textarea[placeholder*='Type to customize this video' i]",
+                        "input[placeholder*='Type to customize this video' i]",
+                        "textarea[placeholder*='Type to customize video' i]",
+                        "input[placeholder*='Type to customize video' i]",
+                        "textarea[placeholder*='Customize video' i]",
+                        "input[placeholder*='Customize video' i]",
                         "div.tiptap.ProseMirror[contenteditable='true']",
                         "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
+                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
+                        "[contenteditable='true'][aria-label*='Type to customize this video' i]",
+                        "[contenteditable='true'][data-placeholder*='Type to customize this video' i]",
+                        "[contenteditable='true'][aria-label*='Type to customize video' i]",
+                        "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
+                        "[contenteditable='true'][aria-label*='Make a video' i]",
+                        "[contenteditable='true'][data-placeholder*='Customize video' i]"
                     ];
 
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
@@ -698,7 +710,7 @@ class MainWindow(QMainWindow):
                         for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
                     }});
                     const input = inputCandidates.find((el) => isVisible(el));
-                    if (!input) return {{ ok: false, error: "Type to imagine input not found" }};
+                    if (!input) return {{ ok: false, error: "Prompt input not found" }};
 
                     input.focus();
                     if (input.isContentEditable) {{
@@ -800,7 +812,7 @@ class MainWindow(QMainWindow):
         verify_prompt_script = r"""
             (() => {
                 try {
-                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], textarea[aria-label*='Make a video' i], input[aria-label*='Make a video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i], [contenteditable='true'][aria-label*='Type to customize this video' i], [contenteditable='true'][data-placeholder*='Type to customize this video' i], [contenteditable='true'][aria-label*='Type to customize video' i], [contenteditable='true'][data-placeholder*='Type to customize video' i], [contenteditable='true'][aria-label*='Make a video' i], [contenteditable='true'][data-placeholder*='Customize video' i]");
                     if (!promptInput) return { ok: false, error: "Prompt input not found during verification" };
                     const value = promptInput.isContentEditable ? (promptInput.textContent || "") : (promptInput.value || "");
                     return { ok: !!value.trim(), filledLength: value.length };
@@ -860,7 +872,7 @@ class MainWindow(QMainWindow):
                     const hasSelectedByText = (patterns, root = document) => selectedTextElements(root)
                         .some((el) => matchesAny((el.textContent || "").trim(), patterns));
 
-                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], textarea[aria-label*='Make a video' i], input[aria-label*='Make a video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i], [contenteditable='true'][aria-label*='Type to customize this video' i], [contenteditable='true'][data-placeholder*='Type to customize this video' i], [contenteditable='true'][aria-label*='Type to customize video' i], [contenteditable='true'][data-placeholder*='Type to customize video' i], [contenteditable='true'][aria-label*='Make a video' i], [contenteditable='true'][data-placeholder*='Customize video' i]");
                     const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
                     const clickVisibleButtonByAriaLabel = (ariaLabel) => {
                         const button = [...document.querySelectorAll(`button[aria-label='${ariaLabel}']`)]
@@ -957,7 +969,7 @@ class MainWindow(QMainWindow):
             (() => {
                 try {
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], textarea[aria-label*='Make a video' i], input[aria-label*='Make a video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i], [contenteditable='true'][aria-label*='Type to customize this video' i], [contenteditable='true'][data-placeholder*='Type to customize this video' i], [contenteditable='true'][aria-label*='Type to customize video' i], [contenteditable='true'][data-placeholder*='Type to customize video' i], [contenteditable='true'][aria-label*='Make a video' i], [contenteditable='true'][data-placeholder*='Customize video' i]");
 
                     const submitSelectors = [
                         "button[type='submit'][aria-label='Submit']",
@@ -1441,7 +1453,7 @@ class MainWindow(QMainWindow):
         self.browser.setUrl(QUrl.fromLocalFile(str(frame_path)))
         self._append_log(
             "Extracted last frame and copied it to clipboard as an image. "
-            f"Saved to: {frame_path}. You can now paste it into Grok's 'Type to imagine' tab."
+            f"Saved to: {frame_path}. You can now paste it into Grok's prompt tab."
         )
 
     def _extract_last_frame(self, video_path: str) -> Path | None:
@@ -1503,9 +1515,23 @@ class MainWindow(QMainWindow):
                 const selectors = [
                     "textarea[placeholder*='Type to imagine' i]",
                     "input[placeholder*='Type to imagine' i]",
+                    "textarea[placeholder*='Type to customize this video' i]",
+                    "input[placeholder*='Type to customize this video' i]",
+                    "textarea[placeholder*='Type to customize video' i]",
+                    "input[placeholder*='Type to customize video' i]",
+                    "textarea[placeholder*='Customize video' i]",
+                    "input[placeholder*='Customize video' i]",
+                    "textarea[aria-label*='Make a video' i]",
+                    "input[aria-label*='Make a video' i]",
                     "div.tiptap.ProseMirror[contenteditable='true']",
                     "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
+                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
+                    "[contenteditable='true'][aria-label*='Type to customize this video' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to customize this video' i]",
+                    "[contenteditable='true'][aria-label*='Type to customize video' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
+                    "[contenteditable='true'][aria-label*='Make a video' i]",
+                    "[contenteditable='true'][data-placeholder*='Customize video' i]"
                 ];
                 const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
                 const setInputFiles = (input, files) => {
@@ -1586,21 +1612,13 @@ class MainWindow(QMainWindow):
                         };
                     }
                 }
-                return { ok: false, error: 'Type to imagine input not found for paste' };
+                return { ok: false, error: 'Prompt input not found for paste' };
             })()
         """
 
         upload_script = upload_script.replace("__FRAME_BASE64__", repr(frame_base64)).replace("__FRAME_NAME__", repr(frame_path.name))
 
-        def after_focus(result):
-            if not isinstance(result, dict) or not result.get("ok"):
-                details = result if isinstance(result, dict) else {"result": str(result)}
-                self._append_log(f"WARNING: Could not upload extracted frame into Grok prompt area. Details: {details}")
-                return
-            self._append_log(
-                "Completed browser-side image paste into the prompt area "
-                f"(selector={result.get('selector')}, populated_inputs={result.get('populatedInputs')}/{result.get('fileInputs')})."
-            )
+        def after_focus(_result):
             if callable(on_uploaded):
                 on_uploaded()
 
