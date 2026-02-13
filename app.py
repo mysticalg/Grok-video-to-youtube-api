@@ -36,6 +36,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 CACHE_DIR = BASE_DIR / ".qtwebengine"
+MIN_VALID_VIDEO_BYTES = 1 * 1024 * 1024
 API_BASE_URL = os.getenv("XAI_API_BASE", "https://api.x.ai/v1")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 
@@ -284,6 +285,7 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_target_count = 0
         self.continue_from_frame_completed = 0
         self.continue_from_frame_prompt = ""
+        self.continue_from_frame_current_source_video = ""
         self.continue_from_frame_waiting_for_reload = False
         self.continue_from_frame_reload_timeout_timer = QTimer(self)
         self.continue_from_frame_reload_timeout_timer.setSingleShot(True)
@@ -342,6 +344,10 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel("Manual Prompt (used only when source is Manual)"))
         self.manual_prompt = QPlainTextEdit()
         self.manual_prompt.setPlaceholderText("Paste or write an exact prompt to skip prompt APIs...")
+        self.manual_prompt.setPlainText(
+            "abstract surreal artistic photorealistic strange random dream like scifi slow moving camera, "
+            "slow moving morphing people, furniture, scenary, creatures,  50s style color tv 70mm film"
+        )
         left_layout.addWidget(self.manual_prompt)
 
         row = QHBoxLayout()
@@ -443,6 +449,39 @@ class MainWindow(QMainWindow):
                     "Continue-from-last-frame: detected page reload after image upload. Proceeding with prompt entry."
                 )
                 QTimer.singleShot(700, lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1))
+
+    def _retry_continue_after_small_download(self, variant: int) -> None:
+        source_video = self.continue_from_frame_current_source_video
+        self._append_log(
+            f"Variant {variant} download is smaller than 1MB; restarting from previous source video: {source_video}"
+        )
+
+        if not source_video or not Path(source_video).exists():
+            self._append_log(
+                "ERROR: Previous source video is unavailable for retry; continue-from-last-frame workflow is stopping."
+            )
+            self.continue_from_frame_active = False
+            self.continue_from_frame_target_count = 0
+            self.continue_from_frame_completed = 0
+            self.continue_from_frame_prompt = ""
+            self.continue_from_frame_current_source_video = ""
+            return
+
+        frame_path = self._extract_last_frame(source_video)
+        if frame_path is None:
+            self._append_log(
+                "ERROR: Could not extract a last frame from the previous source video; "
+                "continue-from-last-frame workflow is stopping."
+            )
+            self.continue_from_frame_active = False
+            self.continue_from_frame_target_count = 0
+            self.continue_from_frame_completed = 0
+            self.continue_from_frame_prompt = ""
+            self.continue_from_frame_current_source_video = ""
+            return
+
+        self.last_extracted_frame_path = frame_path
+        self._upload_frame_into_grok(frame_path, on_uploaded=self._wait_for_continue_upload_reload)
 
     def _ensure_browser_video_playback(self) -> None:
         if not hasattr(self, "browser") or self.browser is None:
@@ -610,18 +649,22 @@ class MainWindow(QMainWindow):
         if not latest_video:
             self._append_log("ERROR: No videos available to continue from last frame.")
             self.continue_from_frame_active = False
+            self.continue_from_frame_current_source_video = ""
             return
 
+        self.continue_from_frame_current_source_video = latest_video
         self._append_log(f"Continue-from-last-frame: extracting frame from source video: {latest_video}")
         frame_path = self._extract_last_frame(latest_video)
         if frame_path is None:
             self._append_log("ERROR: Continue-from-last-frame stopped because frame extraction failed.")
             self.continue_from_frame_active = False
+            self.continue_from_frame_current_source_video = ""
             return
         self._append_log(f"Continue-from-last-frame: extracted last frame to {frame_path}")
         if not self._copy_image_to_clipboard(frame_path):
             self._append_log("ERROR: Continue-from-last-frame stopped because clipboard image copy failed.")
             self.continue_from_frame_active = False
+            self.continue_from_frame_current_source_video = ""
             return
 
         self.last_extracted_frame_path = frame_path
@@ -1353,6 +1396,25 @@ class MainWindow(QMainWindow):
         def on_state_changed(state):
             if state == download.DownloadState.DownloadCompleted:
                 video_path = DOWNLOAD_DIR / filename
+                video_size = video_path.stat().st_size if video_path.exists() else 0
+                if video_size < MIN_VALID_VIDEO_BYTES:
+                    self._append_log(
+                        f"WARNING: Downloaded manual variant {variant} is only {video_size} bytes (< 1MB)."
+                    )
+                    self.pending_manual_variant_for_download = None
+                    self.manual_download_click_sent = False
+                    self.manual_download_started_at = None
+                    self.manual_download_deadline = None
+
+                    if self.continue_from_frame_active:
+                        self._retry_continue_after_small_download(variant)
+                    else:
+                        self._append_log(
+                            "WARNING: Undersized manual download detected outside continue-from-last-frame mode; "
+                            "please use 'Continue from Last Frame' to regenerate from the extracted frame."
+                        )
+                    return
+
                 self.videos.append(
                     {
                         "title": f"Manual Browser Video {variant}",
@@ -1381,6 +1443,7 @@ class MainWindow(QMainWindow):
                         self.continue_from_frame_target_count = 0
                         self.continue_from_frame_completed = 0
                         self.continue_from_frame_prompt = ""
+                        self.continue_from_frame_current_source_video = ""
                 else:
                     self._submit_next_manual_variant()
             elif state == download.DownloadState.DownloadInterrupted:
@@ -1393,6 +1456,7 @@ class MainWindow(QMainWindow):
                 self.continue_from_frame_target_count = 0
                 self.continue_from_frame_completed = 0
                 self.continue_from_frame_prompt = ""
+                self.continue_from_frame_current_source_video = ""
 
         download.stateChanged.connect(on_state_changed)
 
@@ -1626,7 +1690,7 @@ class MainWindow(QMainWindow):
 
     def _wait_for_continue_upload_reload(self) -> None:
         self.continue_from_frame_waiting_for_reload = True
-        self.continue_from_frame_reload_timeout_timer.start(45000)
+        self.continue_from_frame_reload_timeout_timer.start(2000)
         self._append_log(
             "Continue-from-last-frame: image pasted. Grok should auto-reload after upload; "
             "waiting for the new page before entering the continuation prompt..."
@@ -1663,6 +1727,7 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_target_count = self.count.value()
         self.continue_from_frame_completed = 0
         self.continue_from_frame_prompt = manual_prompt
+        self.continue_from_frame_current_source_video = ""
         self._append_log(
             f"Continue-from-last-frame started for {self.continue_from_frame_target_count} iteration(s)."
         )
