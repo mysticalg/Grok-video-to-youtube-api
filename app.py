@@ -1071,27 +1071,22 @@ class MainWindow(QMainWindow):
                         }
                     }
                 };
-
-                const findByText = (selectors, matcher) => {
-                    for (const selector of selectors) {
-                        const matches = [...document.querySelectorAll(selector)]
-                            .filter((el) => isVisible(el) && matcher((el.textContent || "").trim().toLowerCase()));
-                        if (matches.length) return matches[0];
-                    }
-                    return null;
-                };
-
-                const progressNode = findByText(
-                    ["[role='status']", "[aria-live]", "span", "div", "p", "small"],
-                    (text) => /(^|\b)(rendering|processing|generating|finalizing|queued|uploading)(\b|$)/.test(text)
-                        || /\\b\\d{1,3}%\\b/.test(text)
-                );
-                if (progressNode) {
-                    return { status: "progress", progressText: (progressNode.textContent || "").trim() };
+                const percentNode = [...document.querySelectorAll("div.text-xs.font-semibold.w-\\[4ch\\].mb-\\[1px\\].tabular-nums")]
+                    .find((el) => isVisible(el) && /^\\d{1,3}%$/.test((el.textContent || "").trim()));
+                if (percentNode) {
+                    return { status: "progress", progressText: (percentNode.textContent || "").trim() };
                 }
+
+                const redoButton = [...document.querySelectorAll("button")]
+                    .find((btn) => isVisible(btn) && !btn.disabled && /redo/i.test((btn.textContent || "").trim()));
 
                 const downloadButton = [...document.querySelectorAll("button[aria-label='Download'], button")]
                     .find((btn) => isVisible(btn) && !btn.disabled && /download/i.test((btn.getAttribute("aria-label") || btn.textContent || "").trim()));
+
+                if (!redoButton) {
+                    return { status: "waiting-for-redo" };
+                }
+
                 if (downloadButton) {
                     return {
                         status: emulateClick(downloadButton) ? "download-clicked" : "download-visible",
@@ -1126,6 +1121,10 @@ class MainWindow(QMainWindow):
             if status == "progress":
                 if progress_text:
                     self._append_log(f"Variant {current_variant} still rendering: {progress_text}")
+                self.manual_download_poll_timer.start(3000)
+                return
+
+            if status == "waiting-for-redo":
                 self.manual_download_poll_timer.start(3000)
                 return
 
