@@ -1291,7 +1291,11 @@ class MainWindow(QMainWindow):
 
                         const alreadyOnVideoComposer = videoPromptSelectors.some((selector) =>
                             [...document.querySelectorAll(selector)].some((node) => isVisible(node))
-                        );
+                        ) || [...document.querySelectorAll("button, [role='button']")].some((node) => {
+                            if (!isVisible(node)) return false;
+                            const label = `${(node.getAttribute?.("aria-label") || "")} ${(node.textContent || "")}`.toLowerCase();
+                            return /\bmake\s+video\b/.test(label);
+                        });
                         if (alreadyOnVideoComposer) {
                             return { ok: true, clicked: true, count: 0, skippedImagePick: true };
                         }
@@ -1340,7 +1344,13 @@ class MainWindow(QMainWindow):
                             .filter((item) => isVisible(item));
                         if (!listItems.length) return { ok: true, clicked: false, count: 0 };
 
-                        const firstItem = listItems[0];
+                        const mediaListItems = listItems.filter((item) => {
+                            const hasMedia = !!item.querySelector("picture img, img, canvas, video");
+                            const inHistoryOrNav = !!item.closest("nav, aside, [aria-label*='history' i], [data-testid*='history' i]");
+                            return hasMedia && !inHistoryOrNav;
+                        });
+
+                        const firstItem = mediaListItems[0] || listItems[0];
                         const findBestCardTarget = (listItem) => {
                             if (!listItem) return null;
                             const candidates = [
@@ -1375,7 +1385,7 @@ class MainWindow(QMainWindow):
                         if (clicked) {
                             firstItem.setAttribute("data-manual-image-open-clicked", "1");
                         }
-                        return { ok: clicked, clicked, count: listItems.length };
+                        return { ok: true, clicked, count: listItems.length };
                     } catch (err) {
                         return { ok: false, error: String(err && err.stack ? err.stack : err) };
                     }
