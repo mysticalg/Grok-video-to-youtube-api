@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
         self.manual_generation_queue: list[dict] = []
         self.pending_manual_variant_for_download: int | None = None
         self.manual_download_deadline: float | None = None
+        self.manual_download_click_sent = False
         self.manual_download_poll_timer = QTimer(self)
         self.manual_download_poll_timer.setSingleShot(True)
         self.manual_download_poll_timer.timeout.connect(self._poll_for_manual_video)
@@ -550,6 +551,7 @@ class MainWindow(QMainWindow):
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
+        self.manual_download_click_sent = False
         action_delay_ms = 2000
         self._append_log(
             f"Populating prompt for manual variant {variant} in browser, setting video options, "
@@ -867,6 +869,7 @@ class MainWindow(QMainWindow):
 
     def _trigger_browser_video_download(self, variant: int) -> None:
         self.manual_download_deadline = time.time() + 420
+        self.manual_download_click_sent = False
         self.manual_download_poll_timer.start(0)
 
     def _poll_for_manual_video(self) -> None:
@@ -877,15 +880,49 @@ class MainWindow(QMainWindow):
         deadline = self.manual_download_deadline or 0
         if time.time() > deadline:
             self.pending_manual_variant_for_download = None
+            self.manual_download_click_sent = False
             self._append_log(f"ERROR: Variant {variant} did not produce a downloadable video in time.")
             self.generate_btn.setEnabled(True)
             return
 
         script = """
             (() => {
+                const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                const common = { bubbles: true, cancelable: true, composed: true };
+                const emulateClick = (el) => {
+                    if (!el || !isVisible(el) || el.disabled) return false;
+                    try {
+                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        el.dispatchEvent(new MouseEvent("mousedown", common));
+                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        el.dispatchEvent(new MouseEvent("mouseup", common));
+                        el.dispatchEvent(new MouseEvent("click", common));
+                        return true;
+                    } catch (_) {
+                        try {
+                            el.click();
+                            return true;
+                        } catch (__){
+                            return false;
+                        }
+                    }
+                };
+
+                const downloadButton = [...document.querySelectorAll("button[aria-label='Download']")]
+                    .find((btn) => isVisible(btn) && !btn.disabled);
+                if (downloadButton) {
+                    return {
+                        status: emulateClick(downloadButton) ? "download-clicked" : "download-visible",
+                    };
+                }
+
                 const video = document.querySelector("video");
                 const source = document.querySelector("video source");
-                return (video && (video.currentSrc || video.src)) || (source && source.src) || "";
+                const src = (video && (video.currentSrc || video.src)) || (source && source.src) || "";
+                return {
+                    status: src ? "video-src-ready" : "waiting",
+                    src,
+                };
             })()
         """
 
@@ -894,8 +931,21 @@ class MainWindow(QMainWindow):
             if current_variant is None:
                 return
 
-            src = result if isinstance(result, str) else ""
-            if not src:
+            if not isinstance(result, dict):
+                self.manual_download_poll_timer.start(3000)
+                return
+
+            status = result.get("status", "waiting")
+
+            if status == "download-clicked":
+                if not self.manual_download_click_sent:
+                    self._append_log(f"Variant {current_variant} appears ready; clicked in-page Download button.")
+                    self.manual_download_click_sent = True
+                self.manual_download_poll_timer.start(3000)
+                return
+
+            src = result.get("src") or ""
+            if status != "video-src-ready" or not src:
                 self.manual_download_poll_timer.start(3000)
                 return
 
@@ -912,7 +962,11 @@ class MainWindow(QMainWindow):
                 }})()
             """
             self.browser.page().runJavaScript(trigger_download_script)
-            self._append_log(f"Variant {current_variant} video detected; browser download requested.")
+            if not self.manual_download_click_sent:
+                self._append_log(f"Variant {current_variant} video detected; browser download requested from video source.")
+                self.manual_download_click_sent = True
+
+            self.manual_download_poll_timer.start(3000)
 
         self.browser.page().runJavaScript(script, after_poll)
 
@@ -943,10 +997,12 @@ class MainWindow(QMainWindow):
                 self.video_picker.setCurrentIndex(self.video_picker.count() - 1)
                 self._append_log(f"Saved: {video_path}")
                 self.pending_manual_variant_for_download = None
+                self.manual_download_click_sent = False
                 self._submit_next_manual_variant()
             elif state == download.DownloadState.DownloadInterrupted:
                 self._append_log(f"ERROR: Download interrupted for manual variant {variant}.")
                 self.pending_manual_variant_for_download = None
+                self.manual_download_click_sent = False
                 self.generate_btn.setEnabled(True)
 
         download.stateChanged.connect(on_state_changed)
