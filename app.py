@@ -458,10 +458,10 @@ class MainWindow(QMainWindow):
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
-        submit_delay_ms = 350
+        action_delay_ms = 2000
         self._append_log(
             f"Populating prompt for manual variant {variant} in browser, setting video options, "
-            f"then submitting after {submit_delay_ms}ms..."
+            f"then force submitting with {action_delay_ms}ms delays between each action..."
         )
 
         escaped_prompt = repr(prompt)
@@ -757,6 +757,15 @@ class MainWindow(QMainWindow):
                 self.generate_btn.setEnabled(True)
                 return
 
+            if not options_window_closed:
+                self.pending_manual_variant_for_download = None
+                self._append_log(
+                    f"ERROR: Video options menu did not close for variant {variant}; "
+                    "submission has been canceled to prevent an inconsistent submit state."
+                )
+                self.generate_btn.setEnabled(True)
+                return
+
             def after_delayed_submit(submit_result):
                 if not isinstance(submit_result, dict) or not submit_result.get("ok"):
                     self.pending_manual_variant_for_download = None
@@ -771,10 +780,7 @@ class MainWindow(QMainWindow):
                 )
                 self._trigger_browser_video_download(variant)
 
-            if submit_delay_ms > 0:
-                QTimer.singleShot(submit_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
-            else:
-                self.browser.page().runJavaScript(submit_script, after_delayed_submit)
+            QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
 
         def after_submit(result):
             if not isinstance(result, dict) or not result.get("ok"):
@@ -783,10 +789,10 @@ class MainWindow(QMainWindow):
                     f"WARNING: Manual prompt fill reported an error for variant {variant}: {error_detail!r}. "
                     "Continuing with option selection and forced submit."
                 )
-                self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
+                QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(ensure_options_script, _continue_after_options))
                 return
 
-            self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
+            QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(ensure_options_script, _continue_after_options))
 
         self.browser.page().runJavaScript(script, after_submit)
 
