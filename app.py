@@ -902,13 +902,7 @@ class MainWindow(QMainWindow):
                     };
 
                     let clicked = false;
-                    if (submitButton) {
-                        submitButton.focus();
-                        emulateClick(submitButton);
-                        submitButton.dispatchEvent(new MouseEvent("dblclick", common));
-                        emulateClick(submitButton);
-                        clicked = true;
-                    }
+                    
 
                     let formSubmitted = false;
                     if (form) {
@@ -938,7 +932,7 @@ class MainWindow(QMainWindow):
                 options_error = result.get("error") if isinstance(result, dict) else result
                 self._append_log(f"ERROR: Failed while applying manual video options for variant {variant}: {options_error!r}")
                 self.generate_btn.setEnabled(True)
-                return
+                
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
             options_applied = result.get("optionsApplied") if isinstance(result, dict) else []
@@ -954,7 +948,7 @@ class MainWindow(QMainWindow):
                     close_error = close_result.get("error") if isinstance(close_result, dict) else close_result
                     self._append_log(f"ERROR: Failed while closing options window for variant {variant}: {close_error!r}")
                     self.generate_btn.setEnabled(True)
-                    return
+                   
 
                 self._append_log(f"Options window closed for variant {variant}; submitting after {action_delay_ms}ms delay.")
 
@@ -964,7 +958,7 @@ class MainWindow(QMainWindow):
                         error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
                         self._append_log(f"ERROR: Manual submit failed for variant {variant}: {error_detail!r}")
                         self.generate_btn.setEnabled(True)
-                        return
+                       
 
                     self._append_log(
                         "Submitted manual variant "
@@ -999,7 +993,7 @@ class MainWindow(QMainWindow):
                         f"ERROR: Failed while opening options window for variant {variant}: {details!r}"
                     )
                     self.generate_btn.setEnabled(True)
-                    return
+                    
 
                 self._append_log(f"Options window opened for variant {variant}; setting options after {action_delay_ms}ms delay.")
                 QTimer.singleShot(
