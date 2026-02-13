@@ -442,12 +442,13 @@ class MainWindow(QMainWindow):
                     let playing = 0;
                     for (const video of videos) {
                         try {
-                            video.muted = true;
-                            video.defaultMuted = true;
+                            video.muted = false;
+                            video.defaultMuted = false;
+                            video.volume = 1;
                             video.autoplay = true;
                             video.playsInline = true;
                             video.loop = false;
-                            video.setAttribute("muted", "");
+                            video.removeAttribute("muted");
                             video.setAttribute("autoplay", "");
                             video.setAttribute("playsinline", "");
                             video.setAttribute("webkit-playsinline", "");
@@ -470,6 +471,15 @@ class MainWindow(QMainWindow):
                                         const p2 = video.play();
                                         if (p2 && typeof p2.catch === "function") p2.catch(() => {});
                                     });
+                                }
+
+                                if (video.muted) {
+                                    try {
+                                        video.muted = false;
+                                        video.defaultMuted = false;
+                                        video.volume = 1;
+                                        video.removeAttribute("muted");
+                                    } catch (_) {}
                                 }
 
                                 if (video.readyState < 2) {
@@ -1071,7 +1081,7 @@ class MainWindow(QMainWindow):
                         }
                     }
                 };
-                const percentNode = [...document.querySelectorAll("div.text-xs.font-semibold.w-\\[4ch\\].mb-\\[1px\\].tabular-nums")]
+                const percentNode = [...document.querySelectorAll("div .tabular-nums, div.tabular-nums")]
                     .find((el) => isVisible(el) && /^\\d{1,3}%$/.test((el.textContent || "").trim()));
                 if (percentNode) {
                     return { status: "progress", progressText: (percentNode.textContent || "").trim() };
