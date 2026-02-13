@@ -608,7 +608,35 @@ class MainWindow(QMainWindow):
             }})()
         """
 
-        ensure_options_script = r"""
+        open_options_script = r"""
+            (() => {
+                try {
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const common = { bubbles: true, cancelable: true, composed: true };
+                    const emulateClick = (el) => {
+                        if (!el || !isVisible(el) || el.disabled) return false;
+                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        el.dispatchEvent(new MouseEvent("mousedown", common));
+                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        el.dispatchEvent(new MouseEvent("mouseup", common));
+                        el.dispatchEvent(new MouseEvent("click", common));
+                        return true;
+                    };
+
+                    const modelTrigger = document.querySelector("#model-select-trigger");
+                    if (!modelTrigger) {
+                        return { ok: false, error: "Model/options trigger (#model-select-trigger) not found" };
+                    }
+
+                    const opened = emulateClick(modelTrigger);
+                    return { ok: opened, opened };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+
+        set_options_script = r"""
             (() => {
                 try {
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
@@ -671,9 +699,6 @@ class MainWindow(QMainWindow):
                     const optionsRequested = [];
                     const optionsApplied = [];
 
-                    const modelTrigger = document.querySelector("#model-select-trigger");
-                    if (modelTrigger && emulateClick(modelTrigger)) optionsRequested.push("model-menu-open");
-
                     const applyOption = (name, patterns, ariaLabel) => {
                         const isAlreadySelected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
                         if (isAlreadySelected) {
@@ -699,14 +724,6 @@ class MainWindow(QMainWindow):
                     applyOption("10s", [/^10\s*s(ec(onds?)?)?$/i], "10s");
                     applyOption("16:9", [/^16\s*:\s*9$/i], "16:9");
 
-                    let optionsWindowClosed = false;
-                    if (modelTrigger) optionsWindowClosed = emulateClick(modelTrigger);
-                    if (!optionsWindowClosed) {
-                        const escEvent = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true });
-                        document.dispatchEvent(escEvent);
-                        optionsWindowClosed = true;
-                    }
-
                     const missingOptions = requiredOptions.filter((option) => {
                         const patterns = option === "video"
                             ? [/^video$/i]
@@ -723,9 +740,39 @@ class MainWindow(QMainWindow):
                         requiredOptions,
                         optionsRequested,
                         optionsApplied,
-                        missingOptions,
-                        optionsWindowClosed
+                        missingOptions
                     };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+
+        close_options_script = r"""
+            (() => {
+                try {
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const common = { bubbles: true, cancelable: true, composed: true };
+                    const emulateClick = (el) => {
+                        if (!el || !isVisible(el) || el.disabled) return false;
+                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        el.dispatchEvent(new MouseEvent("mousedown", common));
+                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        el.dispatchEvent(new MouseEvent("mouseup", common));
+                        el.dispatchEvent(new MouseEvent("click", common));
+                        return true;
+                    };
+
+                    let closed = false;
+                    const modelTrigger = document.querySelector("#model-select-trigger");
+                    if (modelTrigger) closed = emulateClick(modelTrigger);
+                    if (!closed) {
+                        const escEvent = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true });
+                        document.dispatchEvent(escEvent);
+                        closed = true;
+                    }
+
+                    return { ok: true, closed };
                 } catch (err) {
                     return { ok: false, error: String(err && err.stack ? err.stack : err) };
                 }
@@ -817,41 +864,67 @@ class MainWindow(QMainWindow):
             })()
         """
 
-        def _continue_after_options(result):
+        def _continue_after_options_set(result):
             if not isinstance(result, dict) or not result.get("ok"):
                 self.pending_manual_variant_for_download = None
                 options_error = result.get("error") if isinstance(result, dict) else result
                 self._append_log(f"ERROR: Failed while applying manual video options for variant {variant}: {options_error!r}")
                 self.generate_btn.setEnabled(True)
+                return
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
             options_applied = result.get("optionsApplied") if isinstance(result, dict) else []
             missing_options = result.get("missingOptions") if isinstance(result, dict) else []
-            options_window_closed = bool(result.get("optionsWindowClosed")) if isinstance(result, dict) else False
             requested_summary = ", ".join(options_requested) if options_requested else "none"
             applied_summary = ", ".join(options_applied) if options_applied else "none detected"
             missing_summary = ", ".join(missing_options) if missing_options else "none"
-            self._append_log(
-                f"Prompt populated for variant {variant}; options requested: {requested_summary}; "
-                f"options applied: {applied_summary}; missing required options: {missing_summary}; "
-                f"options window closed: {options_window_closed}."
+            self._append_log(f"Options set for variant {variant}; options requested: {requested_summary}; options applied: {applied_summary}; missing required options: {missing_summary}.")
+
+            def _continue_after_options_close(close_result):
+                if not isinstance(close_result, dict) or not close_result.get("ok"):
+                    self.pending_manual_variant_for_download = None
+                    close_error = close_result.get("error") if isinstance(close_result, dict) else close_result
+                    self._append_log(f"ERROR: Failed while closing options window for variant {variant}: {close_error!r}")
+                    self.generate_btn.setEnabled(True)
+                    return
+
+                self._append_log(f"Options window closed for variant {variant}; submitting after {action_delay_ms}ms delay.")
+
+                def after_delayed_submit(submit_result):
+                    if not isinstance(submit_result, dict) or not submit_result.get("ok"):
+                        self.pending_manual_variant_for_download = None
+                        error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
+                        self._append_log(f"ERROR: Manual submit failed for variant {variant}: {error_detail!r}")
+                        self.generate_btn.setEnabled(True)
+                        return
+
+                    self._append_log(
+                        "Submitted manual variant "
+                        f"{variant} after prompt/options staged delays (double-click submit); "
+                        "waiting for generation to auto-download."
+                    )
+                    self._trigger_browser_video_download(variant)
+
+                QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
+
+            QTimer.singleShot(
+                action_delay_ms,
+                lambda: self.browser.page().runJavaScript(close_options_script, _continue_after_options_close),
             )
 
-            def after_delayed_submit(submit_result):
-                if not isinstance(submit_result, dict) or not submit_result.get("ok"):
-                    self.pending_manual_variant_for_download = None
-                    error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
-                    self._append_log(f"ERROR: Manual submit failed for variant {variant}: {error_detail!r}")
-                    self.generate_btn.setEnabled(True)
-                    
-                self._append_log(
-                    "Submitted manual variant "
-                    f"{variant} immediately after confirming options (double-click submit); "
-                    "waiting for generation to auto-download."
-                )
-                self._trigger_browser_video_download(variant)
+        def _continue_after_options_open(open_result):
+            if not isinstance(open_result, dict) or not open_result.get("ok"):
+                self.pending_manual_variant_for_download = None
+                open_error = open_result.get("error") if isinstance(open_result, dict) else open_result
+                self._append_log(f"ERROR: Failed while opening options window for variant {variant}: {open_error!r}")
+                self.generate_btn.setEnabled(True)
+                return
 
-            QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
+            self._append_log(f"Options window opened for variant {variant}; setting options after {action_delay_ms}ms delay.")
+            QTimer.singleShot(
+                action_delay_ms,
+                lambda: self.browser.page().runJavaScript(set_options_script, _continue_after_options_set),
+            )
 
         def after_submit(result):
             if not isinstance(result, dict) or not result.get("ok"):
@@ -860,10 +933,10 @@ class MainWindow(QMainWindow):
                     f"WARNING: Manual prompt fill reported an error for variant {variant}: {error_detail!r}. "
                     "Continuing with option selection and forced submit."
                 )
-                QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(ensure_options_script, _continue_after_options))
+                QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open))
                 return
 
-            QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(ensure_options_script, _continue_after_options))
+            QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open))
 
         self.browser.page().runJavaScript(script, after_submit)
 
