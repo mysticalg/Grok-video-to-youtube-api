@@ -508,77 +508,135 @@ class MainWindow(QMainWindow):
                     const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
                     if (!typedValue.trim()) return {{ ok: false, error: "Prompt field did not accept text" }};
 
+                    return {{ ok: true, filledLength: typedValue.length }};
+                }} catch (err) {{
+                    return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
+                }}
+            }})()
+        """
+
+        ensure_options_script = r"""
+            (() => {
+                try {
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
                     const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label, span, div";
-                    const clickableAncestor = (el) => {{
+                    const clickableAncestor = (el) => {
                         if (!el) return null;
-                        if (typeof el.closest === 'function') {{
+                        if (typeof el.closest === 'function') {
                             const ancestor = el.closest("button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label");
                             if (ancestor) return ancestor;
-                        }}
+                        }
                         return el;
-                    }};
+                    };
                     const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(text));
                     const visibleTextElements = (root = document) => [...root.querySelectorAll(interactiveSelector)]
                         .filter((el) => isVisible(el) && (el.textContent || "").trim());
+                    const selectedTextElements = (root = document) => visibleTextElements(root)
+                        .filter((el) => {
+                            const target = clickableAncestor(el);
+                            if (!target) return false;
+                            const ariaPressed = target.getAttribute("aria-pressed") === "true";
+                            const ariaSelected = target.getAttribute("aria-selected") === "true";
+                            const dataState = (target.getAttribute("data-state") || "").toLowerCase() === "checked";
+                            const dataSelected = target.getAttribute("data-selected") === "true";
+                            const classSelected = /\b(active|selected|checked|on)\b/i.test(target.className || "");
+                            const checkedInput = !!target.querySelector("input[type='radio']:checked, input[type='checkbox']:checked");
+                            return ariaPressed || ariaSelected || dataState || dataSelected || checkedInput || classSelected;
+                        });
 
-                    const emulateClick = (el) => {{
+                    const emulateClick = (el) => {
                         if (!el || !isVisible(el) || el.disabled) return false;
-                        const common = {{ bubbles: true, cancelable: true, composed: true }};
+                        const common = { bubbles: true, cancelable: true, composed: true };
                         el.dispatchEvent(new PointerEvent("pointerdown", common));
                         el.dispatchEvent(new MouseEvent("mousedown", common));
                         el.dispatchEvent(new PointerEvent("pointerup", common));
                         el.dispatchEvent(new MouseEvent("mouseup", common));
                         el.dispatchEvent(new MouseEvent("click", common));
                         return true;
-                    }};
+                    };
 
-                    const clickByText = (patterns, root = document) => {{
+                    const clickByText = (patterns, root = document) => {
                         const candidate = visibleTextElements(root).find((el) => matchesAny((el.textContent || "").trim(), patterns));
                         const target = clickableAncestor(candidate);
                         if (!target) return false;
                         return emulateClick(target);
-                    }};
+                    };
 
-                    const composer = input.closest("form") || input.parentElement || document;
-                    const clickVisibleButtonByAriaLabel = (ariaLabel) => {{
-                        const button = [...document.querySelectorAll(`button[aria-label='${{ariaLabel}}']`)]
+                    const hasSelectedByText = (patterns, root = document) => selectedTextElements(root)
+                        .some((el) => matchesAny((el.textContent || "").trim(), patterns));
+
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
+                    const clickVisibleButtonByAriaLabel = (ariaLabel) => {
+                        const button = [...document.querySelectorAll(`button[aria-label='${ariaLabel}']`)]
                             .find((el) => isVisible(el) && !el.disabled);
                         if (!button) return false;
                         return emulateClick(button);
-                    }};
-
-                    const optionsRequested = [];
-                    const optionsApplied = [];
-                    const modelTrigger = document.querySelector("#model-select-trigger");
-                    if (modelTrigger && emulateClick(modelTrigger)) optionsRequested.push("model-menu-open");
-                    if (clickByText([/^video$/i], composer) || clickByText([/^video$/i])) optionsApplied.push("video");
-                    if (clickVisibleButtonByAriaLabel("720p") || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i], composer) || clickByText([/720\s*p/i, /1280\s*[x×]\s*720/i])) optionsApplied.push("720p");
-                    if (clickVisibleButtonByAriaLabel("10s") || clickByText([/^10\s*s(ec(onds?)?)?$/i], composer) || clickByText([/^10\s*s(ec(onds?)?)?$/i])) optionsApplied.push("10s");
-                    if (clickVisibleButtonByAriaLabel("16:9") || clickByText([/^16\s*:\s*9$/i], composer) || clickByText([/^16\s*:\s*9$/i])) optionsApplied.push("16:9");
-                    let optionsWindowClosed = false;
-                    if (modelTrigger) optionsWindowClosed = emulateClick(modelTrigger);
-                    if (!optionsWindowClosed) {{
-                        const escEvent = new KeyboardEvent("keydown", {{ key: "Escape", code: "Escape", bubbles: true }});
-                        document.dispatchEvent(escEvent);
-                        optionsWindowClosed = true;
-                    }}
+                    };
 
                     const requiredOptions = ["video", "720p", "10s", "16:9"];
-                    const missingOptions = requiredOptions.filter((option) => !optionsApplied.includes(option));
+                    const optionsRequested = [];
+                    const optionsApplied = [];
 
-                    return {{
+                    const modelTrigger = document.querySelector("#model-select-trigger");
+                    if (modelTrigger && emulateClick(modelTrigger)) optionsRequested.push("model-menu-open");
+
+                    const applyOption = (name, patterns, ariaLabel) => {
+                        const isAlreadySelected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        if (isAlreadySelected) {
+                            optionsApplied.push(`${name}(already-selected)`);
+                            return;
+                        }
+                        const clicked = (ariaLabel && clickVisibleButtonByAriaLabel(ariaLabel))
+                            || clickByText(patterns, composer)
+                            || clickByText(patterns);
+                        if (clicked) {
+                            optionsRequested.push(name);
+                        }
+                        const isNowSelected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        if (clicked && !isNowSelected) {
+                            clickByText(patterns, composer) || clickByText(patterns);
+                        }
+                        const selected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        if (selected) optionsApplied.push(name);
+                    };
+
+                    applyOption("video", [/^video$/i], null);
+                    applyOption("720p", [/720\s*p/i, /1280\s*[x×]\s*720/i], "720p");
+                    applyOption("10s", [/^10\s*s(ec(onds?)?)?$/i], "10s");
+                    applyOption("16:9", [/^16\s*:\s*9$/i], "16:9");
+
+                    let optionsWindowClosed = false;
+                    if (modelTrigger) optionsWindowClosed = emulateClick(modelTrigger);
+                    if (!optionsWindowClosed) {
+                        const escEvent = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true });
+                        document.dispatchEvent(escEvent);
+                        optionsWindowClosed = true;
+                    }
+
+                    const missingOptions = requiredOptions.filter((option) => {
+                        const patterns = option === "video"
+                            ? [/^video$/i]
+                            : option === "720p"
+                                ? [/720\s*p/i, /1280\s*[x×]\s*720/i]
+                                : option === "10s"
+                                    ? [/^10\s*s(ec(onds?)?)?$/i]
+                                    : [/^16\s*:\s*9$/i];
+                        return !(hasSelectedByText(patterns, composer) || hasSelectedByText(patterns));
+                    });
+
+                    return {
                         ok: true,
-                        filledLength: typedValue.length,
+                        requiredOptions,
                         optionsRequested,
                         optionsApplied,
-                        requiredOptions,
                         missingOptions,
                         optionsWindowClosed
-                    }};
-                }} catch (err) {{
-                    return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
-                }}
-            }})()
+                    };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
         """
 
         submit_script = r"""
@@ -679,47 +737,12 @@ class MainWindow(QMainWindow):
             })()
         """
 
-        def after_submit(result):
+        def _continue_after_options(result):
             if not isinstance(result, dict) or not result.get("ok"):
-                def after_fill_check(check_result):
-                    if isinstance(check_result, dict) and check_result.get("ok"):
-                        self._append_log(
-                            f"Manual prompt fill response was unexpected ({result!r}) but prompt appears filled; continuing submit flow."
-                        )
-                        after_submit({"ok": True, "optionsRequested": [], "optionsApplied": [], "optionsWindowClosed": False})
-                        return
-
-                    error_detail = result.get("error") if isinstance(result, dict) else result
-                    self._append_log(
-                        f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}. "
-                        "Attempting forced form submit anyway."
-                    )
-
-                    def after_forced_submit(submit_result):
-                        if not isinstance(submit_result, dict) or not submit_result.get("ok"):
-                            self.pending_manual_variant_for_download = None
-                            forced_error = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
-                            self._append_log(
-                                f"ERROR: Forced manual submit also failed for variant {variant}: {forced_error!r}"
-                            )
-                            self.generate_btn.setEnabled(True)
-                            return
-
-                        self._append_log(
-                            f"Forced submit triggered for manual variant {variant} after fill failure "
-                            f"(after {forced_submit_delay_ms}ms delay); waiting for generation to auto-download."
-                        )
-                        self._trigger_browser_video_download(variant)
-
-                    if forced_submit_delay_ms > 0:
-                        QTimer.singleShot(
-                            forced_submit_delay_ms,
-                            lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit)
-                        )
-                    else:
-                        self.browser.page().runJavaScript(submit_script, after_forced_submit)
-
-                self.browser.page().runJavaScript(filled_prompt_check_script, after_fill_check)
+                self.pending_manual_variant_for_download = None
+                options_error = result.get("error") if isinstance(result, dict) else result
+                self._append_log(f"ERROR: Failed while applying manual video options for variant {variant}: {options_error!r}")
+                self.generate_btn.setEnabled(True)
                 return
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
@@ -762,6 +785,51 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(submit_delay_ms, lambda: self.browser.page().runJavaScript(submit_script, after_delayed_submit))
             else:
                 self.browser.page().runJavaScript(submit_script, after_delayed_submit)
+
+        def after_submit(result):
+            if not isinstance(result, dict) or not result.get("ok"):
+                def after_fill_check(check_result):
+                    if isinstance(check_result, dict) and check_result.get("ok"):
+                        self._append_log(
+                            f"Manual prompt fill response was unexpected ({result!r}) but prompt appears filled; applying options before submit."
+                        )
+                        self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
+                        return
+
+                    error_detail = result.get("error") if isinstance(result, dict) else result
+                    self._append_log(
+                        f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}. "
+                        "Attempting forced form submit anyway."
+                    )
+
+                    def after_forced_submit(submit_result):
+                        if not isinstance(submit_result, dict) or not submit_result.get("ok"):
+                            self.pending_manual_variant_for_download = None
+                            forced_error = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
+                            self._append_log(
+                                f"ERROR: Forced manual submit also failed for variant {variant}: {forced_error!r}"
+                            )
+                            self.generate_btn.setEnabled(True)
+                            return
+
+                        self._append_log(
+                            f"Forced submit triggered for manual variant {variant} after fill failure "
+                            f"(after {forced_submit_delay_ms}ms delay); waiting for generation to auto-download."
+                        )
+                        self._trigger_browser_video_download(variant)
+
+                    if forced_submit_delay_ms > 0:
+                        QTimer.singleShot(
+                            forced_submit_delay_ms,
+                            lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit)
+                        )
+                    else:
+                        self.browser.page().runJavaScript(submit_script, after_forced_submit)
+
+                self.browser.page().runJavaScript(filled_prompt_check_script, after_fill_check)
+                return
+
+            self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
 
         self.browser.page().runJavaScript(script, after_submit)
 
