@@ -703,13 +703,9 @@ class MainWindow(QMainWindow):
 
                     let formSubmitted = false;
                     if (form) {
-                        if (typeof form.requestSubmit === "function") {
-                            form.requestSubmit(submitButton || undefined);
-                            formSubmitted = true;
-                        } else if (typeof form.submit === "function") {
-                            form.submit();
-                            formSubmitted = true;
-                        }
+                        const ev = new Event("submit", { bubbles: true, cancelable: true });
+                        formSubmitted = form.dispatchEvent(ev); // lets React handlers run
+                        formSubmitted = true;
                     }
 
                     return {
@@ -733,7 +729,6 @@ class MainWindow(QMainWindow):
                 options_error = result.get("error") if isinstance(result, dict) else result
                 self._append_log(f"ERROR: Failed while applying manual video options for variant {variant}: {options_error!r}")
                 self.generate_btn.setEnabled(True)
-                return
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
             options_applied = result.get("optionsApplied") if isinstance(result, dict) else []
@@ -748,31 +743,13 @@ class MainWindow(QMainWindow):
                 f"options window closed: {options_window_closed}."
             )
 
-            if missing_options:
-                self.pending_manual_variant_for_download = None
-                self._append_log(
-                    f"ERROR: Required video options were not set before submit for variant {variant}: "
-                    f"{missing_summary}. Submission has been canceled so options can be corrected."
-                )
-                self.generate_btn.setEnabled(True)
-                return
-
-            if not options_window_closed:
-                self.pending_manual_variant_for_download = None
-                self._append_log(
-                    f"ERROR: Video options menu did not close for variant {variant}; "
-                    "submission has been canceled to prevent an inconsistent submit state."
-                )
-                self.generate_btn.setEnabled(True)
-                return
-
             def after_delayed_submit(submit_result):
                 if not isinstance(submit_result, dict) or not submit_result.get("ok"):
                     self.pending_manual_variant_for_download = None
                     error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
                     self._append_log(f"ERROR: Manual submit failed for variant {variant}: {error_detail!r}")
                     self.generate_btn.setEnabled(True)
-                    return
+                    
                 self._append_log(
                     "Submitted manual variant "
                     f"{variant} immediately after confirming options (double-click submit); "
