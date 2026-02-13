@@ -1448,6 +1448,41 @@ class MainWindow(QMainWindow):
                     "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
                 ];
                 const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                const setInputFiles = (input, files) => {
+                    try {
+                        const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files");
+                        if (descriptor && typeof descriptor.set === "function") {
+                            descriptor.set.call(input, files);
+                            return true;
+                        }
+                    } catch (_) {}
+
+                    try {
+                        Object.defineProperty(input, "files", { value: files, configurable: true });
+                        return true;
+                    } catch (_) {
+                        return false;
+                    }
+                };
+
+                const dispatchFileEvents = (target, dt) => {
+                    try {
+                        target.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+                        target.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+                    } catch (_) {}
+
+                    ["dragenter", "dragover", "drop"].forEach((eventName) => {
+                        try {
+                            target.dispatchEvent(new DragEvent(eventName, { bubbles: true, cancelable: true, dataTransfer: dt }));
+                        } catch (_) {}
+                    });
+
+                    try {
+                        const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt });
+                        target.dispatchEvent(pasteEvent);
+                    } catch (_) {}
+                };
+
                 for (const selector of selectors) {
                     const node = [...document.querySelectorAll(selector)].find((el) => isVisible(el));
                     if (node) {
@@ -1460,27 +1495,35 @@ class MainWindow(QMainWindow):
                         const dt = new DataTransfer();
                         dt.items.add(file);
 
-                        const fileInputs = [...document.querySelectorAll("input[type='file']")];
+                        const queryBar = node.closest(".query-bar") || node.closest("form") || node.parentElement;
+                        const promptRoot = queryBar?.parentElement || node.parentElement;
+                        const scopedInputs = [
+                            ...(promptRoot ? promptRoot.querySelectorAll("input[type='file']") : []),
+                            ...(queryBar ? queryBar.querySelectorAll("input[type='file']") : []),
+                        ];
+                        const fileInputs = scopedInputs.length
+                            ? [...new Set(scopedInputs)]
+                            : [...document.querySelectorAll("input[type='file']")];
+
+                        let populatedInputs = 0;
                         for (const input of fileInputs) {
                             try {
-                                Object.defineProperty(input, "files", { value: dt.files, configurable: true });
-                                input.dispatchEvent(new Event("input", { bubbles: true }));
-                                input.dispatchEvent(new Event("change", { bubbles: true }));
+                                if (!setInputFiles(input, dt.files)) continue;
+                                dispatchFileEvents(input, dt);
+                                populatedInputs += 1;
                             } catch (_) {}
                         }
 
-                        try {
-                            const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt });
-                            node.dispatchEvent(pasteEvent);
-                        } catch (_) {}
+                        dispatchFileEvents(node, dt);
+                        if (queryBar && queryBar !== node) dispatchFileEvents(queryBar, dt);
+                        if (promptRoot && promptRoot !== queryBar && promptRoot !== node) dispatchFileEvents(promptRoot, dt);
 
-                        ["dragenter", "dragover", "drop"].forEach((eventName) => {
-                            try {
-                                node.dispatchEvent(new DragEvent(eventName, { bubbles: true, cancelable: true, dataTransfer: dt }));
-                            } catch (_) {}
-                        });
-
-                        return { ok: true, fileInputs: fileInputs.length };
+                        return {
+                            ok: populatedInputs > 0,
+                            fileInputs: fileInputs.length,
+                            populatedInputs,
+                            selector,
+                        };
                     }
                 }
                 return { ok: false, error: 'Type to imagine input not found for paste' };
@@ -1491,9 +1534,13 @@ class MainWindow(QMainWindow):
 
         def after_focus(result):
             if not isinstance(result, dict) or not result.get("ok"):
-                self._append_log("WARNING: Could not upload extracted frame into Grok prompt area.")
+                details = result if isinstance(result, dict) else {"result": str(result)}
+                self._append_log(f"WARNING: Could not upload extracted frame into Grok prompt area. Details: {details}")
                 return
-            self._append_log("Uploaded last frame image into the browser prompt area.")
+            self._append_log(
+                "Uploaded last frame image into the browser prompt area "
+                f"(selector={result.get('selector')}, populated_inputs={result.get('populatedInputs')}/{result.get('fileInputs')})."
+            )
 
         self.browser.page().runJavaScript(upload_script, after_focus)
 
