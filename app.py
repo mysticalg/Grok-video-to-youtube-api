@@ -1301,7 +1301,7 @@ class MainWindow(QMainWindow):
                             const targetImage = nonVideoImages[0] || imageNodes[0] || null;
                             if (!targetImage) return null;
 
-                            const clickableAncestor = targetImage.closest("a, button, [role='button'], [tabindex], relative-group, media-post-masonry-card");
+                            const clickableAncestor = targetImage.closest("a, button, [role='button'], [tabindex], .relative.group, [class~='relative'][class~='group'], media-post-masonry-card, [data-testid*='media-post' i]");
                             if (clickableAncestor && isVisible(clickableAncestor) && clickableAncestor !== listItem) {
                                 const label = `${(clickableAncestor.getAttribute("aria-label") || "")} ${(clickableAncestor.textContent || "")}`.toLowerCase();
                                 if (!/play/.test(label)) return clickableAncestor;
@@ -1317,7 +1317,8 @@ class MainWindow(QMainWindow):
                         const firstItem = listItems[0];
                         const cardTarget =
                             getClickableImageTarget(firstItem) ||
-                            firstItem.querySelector("relative-group") ||
+                            firstItem.querySelector(".relative.group") ||
+                            firstItem.querySelector("[class~='relative'][class~='group']") ||
                             firstItem.querySelector("media-post-masonry-card") ||
                             firstItem.querySelector("[data-testid*='media-post' i]") ||
                             firstItem.querySelector("a") ||
