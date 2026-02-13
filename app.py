@@ -595,17 +595,21 @@ class MainWindow(QMainWindow):
         self._submit_next_manual_variant()
 
     def _start_continue_iteration(self) -> None:
-        if not self.videos:
+        latest_video = self._resolve_latest_video_for_continuation()
+        if not latest_video:
             self._append_log("ERROR: No videos available to continue from last frame.")
             self.continue_from_frame_active = False
             return
 
-        latest_video = self.videos[-1]["video_file_path"]
+        self._append_log(f"Continue-from-last-frame: extracting frame from source video: {latest_video}")
         frame_path = self._extract_last_frame(latest_video)
         if frame_path is None:
+            self._append_log("ERROR: Continue-from-last-frame stopped because frame extraction failed.")
             self.continue_from_frame_active = False
             return
+        self._append_log(f"Continue-from-last-frame: extracted last frame to {frame_path}")
         if not self._copy_image_to_clipboard(frame_path):
+            self._append_log("ERROR: Continue-from-last-frame stopped because clipboard image copy failed.")
             self.continue_from_frame_active = False
             return
 
@@ -616,11 +620,32 @@ class MainWindow(QMainWindow):
         )
         self.show_browser_page()
         browser_page_pause_ms = 200
+        self._append_log("Continue-from-last-frame: starting image paste into Grok prompt area...")
         QTimer.singleShot(900 + browser_page_pause_ms, lambda: self._upload_frame_into_grok(frame_path))
+        self._append_log("Continue-from-last-frame: image paste scheduled; prompt submission will follow.")
         QTimer.singleShot(
             2600 + browser_page_pause_ms,
             lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1),
         )
+
+    def _resolve_latest_video_for_continuation(self) -> str | None:
+        if self.videos:
+            return self.videos[-1]["video_file_path"]
+
+        candidates: list[Path] = []
+        for pattern in ("*.mp4", "*.mov", "*.webm"):
+            candidates.extend(DOWNLOAD_DIR.glob(pattern))
+
+        files = [path for path in candidates if path.is_file()]
+        if not files:
+            return None
+
+        latest = max(files, key=lambda path: path.stat().st_mtime)
+        self._append_log(
+            "Continue-from-last-frame fallback: no in-session videos found, "
+            f"using latest file from downloads folder: {latest}"
+        )
+        return str(latest)
 
     def _submit_next_manual_variant(self) -> None:
         if not self.manual_generation_queue:
@@ -1405,6 +1430,7 @@ class MainWindow(QMainWindow):
 
     def _extract_last_frame(self, video_path: str) -> Path | None:
         frame_path = DOWNLOAD_DIR / f"last_frame_{int(time.time() * 1000)}.png"
+        self._append_log(f"Starting ffmpeg last-frame extraction from: {video_path}")
 
         try:
             subprocess.run(
@@ -1431,9 +1457,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Frame Extraction Failed", exc.stderr[-800:] or "ffmpeg failed.")
             return None
 
+        self._append_log(f"Completed ffmpeg last-frame extraction: {frame_path}")
         return frame_path
 
     def _copy_image_to_clipboard(self, frame_path: Path) -> bool:
+        self._append_log(f"Copying extracted frame to clipboard: {frame_path}")
 
         image = QImage(str(frame_path))
         if image.isNull():
@@ -1444,11 +1472,13 @@ class MainWindow(QMainWindow):
         mime.setImageData(image)
         mime.setText(str(frame_path))
         QGuiApplication.clipboard().setMimeData(mime)
+        self._append_log("Clipboard image copy completed.")
         return True
 
     def _upload_frame_into_grok(self, frame_path: Path) -> None:
         import base64
 
+        self._append_log(f"Starting browser-side image paste for frame: {frame_path.name}")
         frame_base64 = base64.b64encode(frame_path.read_bytes()).decode("ascii")
         upload_script = r"""
             (() => {
@@ -1552,7 +1582,7 @@ class MainWindow(QMainWindow):
                 self._append_log(f"WARNING: Could not upload extracted frame into Grok prompt area. Details: {details}")
                 return
             self._append_log(
-                "Uploaded last frame image into the browser prompt area "
+                "Completed browser-side image paste into the prompt area "
                 f"(selector={result.get('selector')}, populated_inputs={result.get('populatedInputs')}/{result.get('fileInputs')})."
             )
 
@@ -1564,7 +1594,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Manual Mode Required", "Set Prompt Source to 'Manual prompt (no API)' for frame continuation.")
             return
 
-        if not self.videos:
+        latest_video = self._resolve_latest_video_for_continuation()
+        if not latest_video:
             QMessageBox.warning(self, "No Videos", "Generate or open a video first.")
             return
 
@@ -1580,6 +1611,7 @@ class MainWindow(QMainWindow):
         self._append_log(
             f"Continue-from-last-frame started for {self.continue_from_frame_target_count} iteration(s)."
         )
+        self._append_log(f"Continue-from-last-frame source video selected: {latest_video}")
         self._start_continue_iteration()
 
     def show_browser_page(self) -> None:
