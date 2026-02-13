@@ -458,8 +458,7 @@ class MainWindow(QMainWindow):
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
-        submit_delay_ms = 0
-        forced_submit_delay_ms = 0
+        submit_delay_ms = 350
         self._append_log(
             f"Populating prompt for manual variant {variant} in browser, setting video options, "
             f"then submitting after {submit_delay_ms}ms..."
@@ -728,15 +727,6 @@ class MainWindow(QMainWindow):
             })()
         """
 
-        filled_prompt_check_script = r"""
-            (() => {
-                const input = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
-                if (!input) return { ok: false, error: "Prompt input not found while validating fill result" };
-                const value = input.isContentEditable ? (input.textContent || "") : (input.value || "");
-                return { ok: !!value.trim(), valueLength: value.length };
-            })()
-        """
-
         def _continue_after_options(result):
             if not isinstance(result, dict) or not result.get("ok"):
                 self.pending_manual_variant_for_download = None
@@ -788,45 +778,12 @@ class MainWindow(QMainWindow):
 
         def after_submit(result):
             if not isinstance(result, dict) or not result.get("ok"):
-                def after_fill_check(check_result):
-                    if isinstance(check_result, dict) and check_result.get("ok"):
-                        self._append_log(
-                            f"Manual prompt fill response was unexpected ({result!r}) but prompt appears filled; applying options before submit."
-                        )
-                        self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
-                        return
-
-                    error_detail = result.get("error") if isinstance(result, dict) else result
-                    self._append_log(
-                        f"ERROR: Manual prompt fill failed for variant {variant}: {error_detail!r}. "
-                        "Attempting forced form submit anyway."
-                    )
-
-                    def after_forced_submit(submit_result):
-                        if not isinstance(submit_result, dict) or not submit_result.get("ok"):
-                            self.pending_manual_variant_for_download = None
-                            forced_error = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
-                            self._append_log(
-                                f"ERROR: Forced manual submit also failed for variant {variant}: {forced_error!r}"
-                            )
-                            self.generate_btn.setEnabled(True)
-                            return
-
-                        self._append_log(
-                            f"Forced submit triggered for manual variant {variant} after fill failure "
-                            f"(after {forced_submit_delay_ms}ms delay); waiting for generation to auto-download."
-                        )
-                        self._trigger_browser_video_download(variant)
-
-                    if forced_submit_delay_ms > 0:
-                        QTimer.singleShot(
-                            forced_submit_delay_ms,
-                            lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit)
-                        )
-                    else:
-                        self.browser.page().runJavaScript(submit_script, after_forced_submit)
-
-                self.browser.page().runJavaScript(filled_prompt_check_script, after_fill_check)
+                error_detail = result.get("error") if isinstance(result, dict) else result
+                self._append_log(
+                    f"WARNING: Manual prompt fill reported an error for variant {variant}: {error_detail!r}. "
+                    "Continuing with option selection and forced submit."
+                )
+                self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
                 return
 
             self.browser.page().runJavaScript(ensure_options_script, _continue_after_options)
