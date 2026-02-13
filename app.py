@@ -280,6 +280,8 @@ class MainWindow(QMainWindow):
         self.manual_download_started_at: float | None = None
         self.manual_requires_image_pick = True
         self.manual_image_make_video_clicked = False
+        self.pending_manual_variant_prompt: str = ""
+        self.manual_video_prompt_submitted = False
         self.manual_download_poll_timer = QTimer(self)
         self.manual_download_poll_timer.setSingleShot(True)
         self.manual_download_poll_timer.timeout.connect(self._poll_for_manual_video)
@@ -715,6 +717,7 @@ class MainWindow(QMainWindow):
         remaining_count = len(self.manual_generation_queue)
         prompt = item["prompt"]
         variant = item["variant"]
+        self.pending_manual_variant_prompt = prompt
         self.pending_manual_variant_for_download = variant
         self.manual_download_click_sent = False
         action_delay_ms = 2000
@@ -1238,6 +1241,7 @@ class MainWindow(QMainWindow):
         self.manual_download_started_at = time.time()
         self.manual_requires_image_pick = require_image_pick
         self.manual_image_make_video_clicked = not require_image_pick
+        self.manual_video_prompt_submitted = not require_image_pick
         self.manual_download_poll_timer.start(0)
 
     def _poll_for_manual_video(self) -> None:
@@ -1253,6 +1257,7 @@ class MainWindow(QMainWindow):
             self.manual_download_deadline = None
             self.manual_requires_image_pick = True
             self.manual_image_make_video_clicked = False
+            self.manual_video_prompt_submitted = False
             self._append_log(f"ERROR: Variant {variant} did not produce a downloadable video in time.")
             if self.continue_from_frame_active:
                 self._append_log("Continue-from-last-frame stopped because download polling timed out.")
@@ -1283,13 +1288,16 @@ class MainWindow(QMainWindow):
                         if (!listItems.length) return { ok: true, clicked: false, count: 0 };
 
                         const firstItem = listItems[0];
-                        const targetButton = [...firstItem.querySelectorAll("button[aria-label='Make video']")]
-                            .find((btn) => isVisible(btn) && !btn.disabled);
-                        if (!targetButton) return { ok: true, clicked: false, count: listItems.length };
+                        const cardTarget =
+                            firstItem.querySelector("relative-group") ||
+                            firstItem.querySelector("media-post-masonry-card") ||
+                            firstItem.querySelector("[data-testid*='media-post' i]") ||
+                            firstItem.querySelector("a") ||
+                            firstItem;
 
-                        const clicked = emulateClick(targetButton);
+                        const clicked = emulateClick(cardTarget);
                         if (clicked) {
-                            firstItem.setAttribute("data-manual-make-video-clicked", "1");
+                            firstItem.setAttribute("data-manual-image-open-clicked", "1");
                         }
                         return { ok: clicked, clicked, count: listItems.length };
                     } catch (err) {
@@ -1309,12 +1317,97 @@ class MainWindow(QMainWindow):
                 elif clicked:
                     self.manual_image_make_video_clicked = True
                     self._append_log(
-                        f"Variant {variant}: clicked 'Make video' on the first generated image; waiting for video output."
+                        f"Variant {variant}: opened the first generated image/list item to load the video generation page."
                     )
 
                 self.manual_download_poll_timer.start(3000)
 
             self.browser.page().runJavaScript(pick_image_script, after_pick_image)
+            return
+
+        if self.manual_requires_image_pick and self.manual_image_make_video_clicked and not self.manual_video_prompt_submitted:
+            escaped_prompt = repr(self.pending_manual_variant_prompt)
+            submit_video_prompt_script = rf"""
+                (() => {{
+                    try {{
+                        const prompt = {escaped_prompt};
+                        const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                        const common = {{ bubbles: true, cancelable: true, composed: true }};
+                        const emulateClick = (el) => {{
+                            if (!el || !isVisible(el) || el.disabled) return false;
+                            try {{ el.dispatchEvent(new PointerEvent("pointerdown", common)); }} catch (_) {{}}
+                            el.dispatchEvent(new MouseEvent("mousedown", common));
+                            try {{ el.dispatchEvent(new PointerEvent("pointerup", common)); }} catch (_) {{}}
+                            el.dispatchEvent(new MouseEvent("mouseup", common));
+                            el.dispatchEvent(new MouseEvent("click", common));
+                            return true;
+                        }};
+
+                        const promptSelectors = [
+                            "textarea[placeholder*='Type to customize this video' i]",
+                            "input[placeholder*='Type to customize this video' i]",
+                            "textarea[placeholder*='Type to customize video' i]",
+                            "input[placeholder*='Type to customize video' i]",
+                            "textarea[placeholder*='Customize video' i]",
+                            "input[placeholder*='Customize video' i]",
+                            "[contenteditable='true'][aria-label*='Type to customize this video' i]",
+                            "[contenteditable='true'][data-placeholder*='Type to customize this video' i]",
+                            "[contenteditable='true'][aria-label*='Type to customize video' i]",
+                            "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
+                            "[contenteditable='true'][aria-label*='Make a video' i]"
+                        ];
+
+                        const inputCandidates = [];
+                        promptSelectors.forEach((selector) => {{
+                            const matches = document.querySelectorAll(selector);
+                            for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
+                        }});
+                        const input = inputCandidates.find((el) => isVisible(el));
+                        if (!input) return {{ ok: true, submitted: false, reason: "video-prompt-input-not-found" }};
+
+                        input.focus();
+                        if (input.isContentEditable) {{
+                            const paragraph = document.createElement("p");
+                            paragraph.textContent = prompt;
+                            input.replaceChildren(paragraph);
+                        }} else {{
+                            const proto = Object.getPrototypeOf(input);
+                            const descriptor = proto ? Object.getOwnPropertyDescriptor(proto, "value") : null;
+                            const valueSetter = descriptor && descriptor.set;
+                            if (valueSetter) valueSetter.call(input, prompt);
+                            else input.value = prompt;
+                        }}
+                        input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+
+                        const buttons = [...document.querySelectorAll("button, [role='button']")].filter((el) => isVisible(el) && !el.disabled);
+                        const generateButton = buttons.find((btn) => /generate/i.test((btn.textContent || "").trim()) || /make\s*video/i.test((btn.textContent || "").trim()));
+                        if (!generateButton) return {{ ok: true, submitted: false, reason: "video-generate-button-not-found" }};
+
+                        return {{ ok: true, submitted: emulateClick(generateButton) }};
+                    }} catch (err) {{
+                        return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
+                    }}
+                }})()
+            """
+
+            def after_submit_video_prompt(result):
+                ok = isinstance(result, dict) and bool(result.get("ok", True))
+                submitted = isinstance(result, dict) and bool(result.get("submitted"))
+                if not ok:
+                    error_detail = result.get("error") if isinstance(result, dict) else result
+                    self._append_log(
+                        f"WARNING: Could not submit video prompt for variant {variant}: {error_detail!r}. Retrying."
+                    )
+                elif submitted:
+                    self.manual_video_prompt_submitted = True
+                    self._append_log(
+                        f"Variant {variant}: entered the video prompt on the generation page and clicked Generate Video."
+                    )
+
+                self.manual_download_poll_timer.start(3000)
+
+            self.browser.page().runJavaScript(submit_video_prompt_script, after_submit_video_prompt)
             return
 
         script = """
@@ -1481,6 +1574,8 @@ class MainWindow(QMainWindow):
                     self.manual_download_deadline = None
                     self.manual_requires_image_pick = True
                     self.manual_image_make_video_clicked = False
+                    self.manual_video_prompt_submitted = False
+                    self.pending_manual_variant_prompt = ""
 
                     if self.continue_from_frame_active:
                         self._retry_continue_after_small_download(variant)
@@ -1511,6 +1606,8 @@ class MainWindow(QMainWindow):
                 self.manual_download_deadline = None
                 self.manual_requires_image_pick = True
                 self.manual_image_make_video_clicked = False
+                self.manual_video_prompt_submitted = False
+                self.pending_manual_variant_prompt = ""
                 if self.continue_from_frame_active:
                     self.continue_from_frame_completed += 1
                     if self.continue_from_frame_completed < self.continue_from_frame_target_count:
@@ -1532,6 +1629,8 @@ class MainWindow(QMainWindow):
                 self.manual_download_deadline = None
                 self.manual_requires_image_pick = True
                 self.manual_image_make_video_clicked = False
+                self.manual_video_prompt_submitted = False
+                self.pending_manual_variant_prompt = ""
                 self.continue_from_frame_active = False
                 self.continue_from_frame_target_count = 0
                 self.continue_from_frame_completed = 0

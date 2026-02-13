@@ -90,7 +90,7 @@ python app.py
 
 ## Notes
 
-- In **Manual prompt** mode, clicking Generate uses the embedded right-pane browser session at `grok.com/imagine` (no xAI API call), submits your prompt as an **image** generation, clicks **Make video** on the first generated image, then waits for output and downloads the generated video into `downloads/`.
+- In **Manual prompt** mode, clicking Generate uses the embedded right-pane browser session at `grok.com/imagine` (no xAI API call), submits your prompt as an **image** generation, opens the first generated image/list item to navigate to the video-generation view, auto-fills the video prompt there, clicks generate, then waits for output and downloads the generated video into `downloads/`.
 - Downloaded videos are saved under `downloads/`.
 - The right-hand pane is always present and opens `https://grok.com` so you can quickly use "Type to imagine".
 - The local video preview now uses Qt Multimedia (`QMediaPlayer` + `QVideoWidget`) for more reliable playback.
