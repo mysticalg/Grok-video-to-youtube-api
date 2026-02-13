@@ -412,6 +412,14 @@ class MainWindow(QMainWindow):
                     const videos = [...document.querySelectorAll("video")];
                     if (!videos.length) return { ok: true, found: 0, attempted: 0, playing: 0 };
 
+                    const pokeUserGesture = () => {
+                        try {
+                            const ev = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
+                            document.body.dispatchEvent(ev);
+                        } catch (_) {}
+                    };
+                    pokeUserGesture();
+
                     const common = { bubbles: true, cancelable: true, composed: true };
                     const synthClick = (el) => {
                         if (!el) return;
@@ -438,6 +446,8 @@ class MainWindow(QMainWindow):
                             video.setAttribute("playsinline", "");
                             video.setAttribute("webkit-playsinline", "");
                             video.controls = true;
+                            video.preload = "auto";
+                            try { video.load(); } catch (_) {}
 
                             const st = getComputedStyle(video);
                             if (st.display === "none") video.style.display = "block";
@@ -455,6 +465,13 @@ class MainWindow(QMainWindow):
                                         const p2 = video.play();
                                         if (p2 && typeof p2.catch === "function") p2.catch(() => {});
                                     });
+                                }
+
+                                if (video.readyState < 2) {
+                                    video.addEventListener("canplay", () => {
+                                        const p3 = video.play();
+                                        if (p3 && typeof p3.catch === "function") p3.catch(() => {});
+                                    }, { once: true });
                                 }
                             }
 
@@ -690,20 +707,6 @@ class MainWindow(QMainWindow):
             })()
         """
 
-        verify_options_open_script = r"""
-            (() => {
-                try {
-                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                    const popupSelectors = ["[role='dialog']", "[role='menu']", "[role='listbox']", "[data-state='open']", "[data-expanded='true']", "[aria-modal='true']"];
-                    const panelVisible = popupSelectors.some((selector) => [...document.querySelectorAll(selector)]
-                        .some((el) => isVisible(el) && /(video|720|10\s*s|16\s*:\s*9)/i.test((el.textContent || "").trim())));
-                    return { ok: panelVisible, panelVisible };
-                } catch (err) {
-                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
-                }
-            })()
-        """
-
         set_options_script = r"""
             (() => {
                 try {
@@ -928,37 +931,34 @@ class MainWindow(QMainWindow):
 
         def _continue_after_options_set(result):
             if not isinstance(result, dict) or not result.get("ok"):
-                self.pending_manual_variant_for_download = None
                 options_error = result.get("error") if isinstance(result, dict) else result
-                self._append_log(f"ERROR: Failed while applying manual video options for variant {variant}: {options_error!r}")
-                self.generate_btn.setEnabled(True)
-                
+                self._append_log(
+                    f"WARNING: Option application script reported an error for variant {variant}: {options_error!r}. Continuing."
+                )
 
             options_requested = result.get("optionsRequested") if isinstance(result, dict) else []
             options_applied = result.get("optionsApplied") if isinstance(result, dict) else []
-            missing_options = result.get("missingOptions") if isinstance(result, dict) else []
             requested_summary = ", ".join(options_requested) if options_requested else "none"
             applied_summary = ", ".join(options_applied) if options_applied else "none detected"
-            missing_summary = ", ".join(missing_options) if missing_options else "none"
-            self._append_log(f"Options set for variant {variant}; options requested: {requested_summary}; options applied: {applied_summary}; missing required options: {missing_summary}.")
+            self._append_log(
+                f"Options staged for variant {variant}; options requested: {requested_summary}; options applied markers: {applied_summary}."
+            )
 
             def _continue_after_options_close(close_result):
                 if not isinstance(close_result, dict) or not close_result.get("ok"):
-                    self.pending_manual_variant_for_download = None
                     close_error = close_result.get("error") if isinstance(close_result, dict) else close_result
-                    self._append_log(f"ERROR: Failed while closing options window for variant {variant}: {close_error!r}")
-                    self.generate_btn.setEnabled(True)
-                   
+                    self._append_log(
+                        f"WARNING: Closing options window reported an error for variant {variant}: {close_error!r}. Continuing."
+                    )
 
                 self._append_log(f"Options window closed for variant {variant}; submitting after {action_delay_ms}ms delay.")
 
                 def after_delayed_submit(submit_result):
                     if not isinstance(submit_result, dict) or not submit_result.get("ok"):
-                        self.pending_manual_variant_for_download = None
                         error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
-                        self._append_log(f"ERROR: Manual submit failed for variant {variant}: {error_detail!r}")
-                        self.generate_btn.setEnabled(True)
-                       
+                        self._append_log(
+                            f"WARNING: Manual submit script reported an issue for variant {variant}: {error_detail!r}. Continuing to download polling."
+                        )
 
                     self._append_log(
                         "Submitted manual variant "
@@ -981,33 +981,15 @@ class MainWindow(QMainWindow):
                 open_error = open_result.get("error") if isinstance(open_result, dict) else open_result
                 self._append_log(
                     f"WARNING: Opening options window returned an error for variant {variant}: {open_error!r}. "
-                    "Verifying whether options are already visible before bailing."
+                    "Continuing anyway."
                 )
+            elif panel_visible:
+                self._append_log(f"Options panel appears visible for variant {variant}; proceeding to option selection.")
 
-            def _after_verify_options_open(verify_result):
-                verified_open = isinstance(verify_result, dict) and bool(verify_result.get("ok"))
-                if not (open_ok or panel_visible or verified_open):
-                    self.pending_manual_variant_for_download = None
-                    details = verify_result.get("error") if isinstance(verify_result, dict) else verify_result
-                    self._append_log(
-                        f"ERROR: Failed while opening options window for variant {variant}: {details!r}"
-                    )
-                    self.generate_btn.setEnabled(True)
-                    
-
-                self._append_log(f"Options window opened for variant {variant}; setting options after {action_delay_ms}ms delay.")
-                QTimer.singleShot(
-                    action_delay_ms,
-                    lambda: self.browser.page().runJavaScript(set_options_script, _continue_after_options_set),
-                )
-
-            if open_ok or panel_visible:
-                _after_verify_options_open({"ok": True})
-                return
-
+            self._append_log(f"Options window opened for variant {variant}; setting options after {action_delay_ms}ms delay.")
             QTimer.singleShot(
-                400,
-                lambda: self.browser.page().runJavaScript(verify_options_open_script, _after_verify_options_open),
+                action_delay_ms,
+                lambda: self.browser.page().runJavaScript(set_options_script, _continue_after_options_set),
             )
 
         def after_submit(result):
