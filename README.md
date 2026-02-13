@@ -1,4 +1,6 @@
-# Grok Video Desktop Studio (Windows GUI)
+# Grok Video Desktop Studio (Windows GUI) — **Beta**
+
+**Version:** `0.1.0`
 
 This project is now a **desktop Python GUI app** instead of a Flask web server.
 
@@ -94,3 +96,10 @@ python app.py
 - The local video preview now uses Qt Multimedia (`QMediaPlayer` + `QVideoWidget`) for more reliable playback.
 - Last-frame extraction and video stitching require `ffmpeg` in `PATH`.
 - YouTube upload requires a valid OAuth client secret file at `client_secret.json` (written token stored in `youtube_token.json`).
+
+## Support this project
+
+If you find this useful, please consider donating:
+
+- PayPal: https://www.paypal.com/paypalme/dhookster
+- Crypto (SOL): `6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp`
