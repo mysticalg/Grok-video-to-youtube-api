@@ -284,6 +284,10 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_target_count = 0
         self.continue_from_frame_completed = 0
         self.continue_from_frame_prompt = ""
+        self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_reload_timeout_timer = QTimer(self)
+        self.continue_from_frame_reload_timeout_timer.setSingleShot(True)
+        self.continue_from_frame_reload_timeout_timer.timeout.connect(self._on_continue_reload_timeout)
         self.video_playback_hack_timer = QTimer(self)
         self.video_playback_hack_timer.setInterval(1800)
         self.video_playback_hack_timer.setSingleShot(True)
@@ -432,6 +436,13 @@ class MainWindow(QMainWindow):
             self._playback_hack_success_logged = False
             self.video_playback_hack_timer.start()
             self._ensure_browser_video_playback()
+            if self.continue_from_frame_waiting_for_reload and self.continue_from_frame_active:
+                self.continue_from_frame_waiting_for_reload = False
+                self.continue_from_frame_reload_timeout_timer.stop()
+                self._append_log(
+                    "Continue-from-last-frame: detected page reload after image upload. Proceeding with prompt entry."
+                )
+                QTimer.singleShot(700, lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1))
 
     def _ensure_browser_video_playback(self) -> None:
         if not hasattr(self, "browser") or self.browser is None:
@@ -621,11 +632,12 @@ class MainWindow(QMainWindow):
         self.show_browser_page()
         browser_page_pause_ms = 200
         self._append_log("Continue-from-last-frame: starting image paste into Grok prompt area...")
-        QTimer.singleShot(900 + browser_page_pause_ms, lambda: self._upload_frame_into_grok(frame_path))
-        self._append_log("Continue-from-last-frame: image paste scheduled; prompt submission will follow.")
         QTimer.singleShot(
-            2600 + browser_page_pause_ms,
-            lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1),
+            900 + browser_page_pause_ms,
+            lambda: self._upload_frame_into_grok(frame_path, on_uploaded=self._wait_for_continue_upload_reload),
+        )
+        self._append_log(
+            "Continue-from-last-frame: image paste scheduled; waiting for upload/reload before prompt submission."
         )
 
     def _resolve_latest_video_for_continuation(self) -> str | None:
@@ -1475,7 +1487,7 @@ class MainWindow(QMainWindow):
         self._append_log("Clipboard image copy completed.")
         return True
 
-    def _upload_frame_into_grok(self, frame_path: Path) -> None:
+    def _upload_frame_into_grok(self, frame_path: Path, on_uploaded=None) -> None:
         import base64
 
         self._append_log(f"Starting browser-side image paste for frame: {frame_path.name}")
@@ -1585,8 +1597,26 @@ class MainWindow(QMainWindow):
                 "Completed browser-side image paste into the prompt area "
                 f"(selector={result.get('selector')}, populated_inputs={result.get('populatedInputs')}/{result.get('fileInputs')})."
             )
+            if callable(on_uploaded):
+                on_uploaded()
 
         self.browser.page().runJavaScript(upload_script, after_focus)
+
+    def _wait_for_continue_upload_reload(self) -> None:
+        self.continue_from_frame_waiting_for_reload = True
+        self.continue_from_frame_reload_timeout_timer.start(45000)
+        self._append_log(
+            "Continue-from-last-frame: image pasted. Waiting for Grok to finish upload and reload before entering prompt..."
+        )
+
+    def _on_continue_reload_timeout(self) -> None:
+        if not self.continue_from_frame_waiting_for_reload or not self.continue_from_frame_active:
+            return
+        self.continue_from_frame_waiting_for_reload = False
+        self._append_log(
+            "WARNING: Timed out waiting for upload-triggered reload. Continuing anyway with prompt submission."
+        )
+        self._start_manual_browser_generation(self.continue_from_frame_prompt, 1)
 
     def continue_from_last_frame(self) -> None:
         source = self.prompt_source.currentData()
@@ -1605,6 +1635,8 @@ class MainWindow(QMainWindow):
             return
 
         self.continue_from_frame_active = True
+        self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_reload_timeout_timer.stop()
         self.continue_from_frame_target_count = self.count.value()
         self.continue_from_frame_completed = 0
         self.continue_from_frame_prompt = manual_prompt
