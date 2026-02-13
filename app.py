@@ -1343,6 +1343,9 @@ class MainWindow(QMainWindow):
                 const downloadButton = [...document.querySelectorAll("button[aria-label='Download'], button")]
                     .find((btn) => isVisible(btn) && !btn.disabled && /download/i.test((btn.getAttribute("aria-label") || btn.textContent || "").trim()));
 
+                const mediaCard = [...document.querySelectorAll("div[class*='group/media-post-masonry-card']")]
+                    .find((card) => isVisible(card) && (card.querySelector("video") || card.querySelector("img[alt*='Generated image' i]")));
+
                 if (!redoButton) {
                     return { status: "waiting-for-redo" };
                 }
@@ -1350,6 +1353,17 @@ class MainWindow(QMainWindow):
                 if (downloadButton) {
                     return {
                         status: emulateClick(downloadButton) ? "download-clicked" : "download-visible",
+                    };
+                }
+
+                if (mediaCard) {
+                    const clickedBefore = mediaCard.getAttribute("data-manual-video-open-clicked") === "1";
+                    const clicked = emulateClick(mediaCard);
+                    if (clicked) {
+                        mediaCard.setAttribute("data-manual-video-open-clicked", "1");
+                    }
+                    return {
+                        status: clicked ? (clickedBefore ? "video-page-reopen-clicked" : "video-page-open-clicked") : "video-page-card-visible",
                     };
                 }
 
@@ -1392,6 +1406,14 @@ class MainWindow(QMainWindow):
                 if not self.manual_download_click_sent:
                     self._append_log(f"Variant {current_variant} appears ready; clicked in-page Download button.")
                     self.manual_download_click_sent = True
+                self.manual_download_poll_timer.start(3000)
+                return
+
+            if status in {"video-page-open-clicked", "video-page-reopen-clicked", "video-page-card-visible"}:
+                if status == "video-page-open-clicked":
+                    self._append_log(
+                        f"Variant {current_variant}: opened generated video card to load the video page and Download button."
+                    )
                 self.manual_download_poll_timer.start(3000)
                 return
 
