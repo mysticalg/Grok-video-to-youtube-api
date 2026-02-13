@@ -459,6 +459,7 @@ class MainWindow(QMainWindow):
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
         submit_delay_ms = 700
+        forced_submit_delay_ms = 700
         self._append_log(
             f"Populating prompt for manual variant {variant} in browser, setting video options, "
             f"then submitting after {submit_delay_ms}ms..."
@@ -694,12 +695,15 @@ class MainWindow(QMainWindow):
                             return
 
                         self._append_log(
-                            f"Forced submit triggered for manual variant {variant} after fill failure; "
-                            "waiting for generation to auto-download."
+                            f"Forced submit triggered for manual variant {variant} after fill failure "
+                            f"(after {forced_submit_delay_ms}ms delay); waiting for generation to auto-download."
                         )
                         self._trigger_browser_video_download(variant)
 
-                    QTimer.singleShot(0, lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit))
+                    QTimer.singleShot(
+                        forced_submit_delay_ms,
+                        lambda: self.browser.page().runJavaScript(submit_script, after_forced_submit)
+                    )
 
                 self.browser.page().runJavaScript(filled_prompt_check_script, after_fill_check)
                 return
