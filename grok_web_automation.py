@@ -13,11 +13,27 @@ def _require_playwright():
         py = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
         raise RuntimeError(
             "Playwright (Python) is required for web automation. "
-            "Install with: pip install -r requirements-web.txt && python -m playwright install chromium. "
+            "Install with: pip install -r requirements-web.txt && python -m playwright install chromium firefox webkit. "
             f"Current Python: {py} on {platform.system()}. "
             "If greenlet wheel build fails on Windows, use Python 3.11 or 3.12 (64-bit)."
         ) from exc
     return sync_playwright
+
+
+def _get_browser_type(playwright):
+    browser_name = os.getenv("GROK_PLAYWRIGHT_BROWSER", "chromium").strip().lower()
+    supported = {
+        "chromium": playwright.chromium,
+        "firefox": playwright.firefox,
+        "webkit": playwright.webkit,
+    }
+    if browser_name not in supported:
+        supported_names = ", ".join(sorted(supported))
+        raise RuntimeError(
+            f"Unsupported GROK_PLAYWRIGHT_BROWSER='{browser_name}'. "
+            f"Use one of: {supported_names}."
+        )
+    return supported[browser_name], browser_name
 
 
 def _get_selectors() -> dict[str, str]:
@@ -114,12 +130,14 @@ def manual_login_and_save(storage_state_path: Path, timeout_s: int = 300) -> Non
     storage_state_path.parent.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser_type, browser_name = _get_browser_type(p)
+        browser = browser_type.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
         page.goto(selectors["imagine_url"], wait_until="domcontentloaded")
         _resolve_prompt_locator(page, selectors["prompt"], timeout_s=timeout_s)
         context.storage_state(path=str(storage_state_path))
+        print(f"Saved Grok web login session with Playwright browser: {browser_name}")
         browser.close()
 
 
@@ -136,7 +154,8 @@ def generate_video_via_web(
         raise RuntimeError("No saved web login session found. Run manual web login first.")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser_type, browser_name = _get_browser_type(p)
+        browser = browser_type.launch(headless=True)
         context = browser.new_context(storage_state=str(storage_state_path))
         page = context.new_page()
         page.goto(selectors["imagine_url"], wait_until="domcontentloaded")
@@ -164,6 +183,7 @@ def generate_video_via_web(
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(response.body())
+        print(f"Downloaded Grok video using Playwright browser: {browser_name}")
         browser.close()
 
     return output_path

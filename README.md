@@ -50,10 +50,18 @@ python app.py
 - `OPENAI_API_KEY`
 - `OPENAI_CHAT_MODEL` (default: `gpt-4o-mini`)
 - `OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
+- `GROK_PLAYWRIGHT_BROWSER` (default: `chromium`; options: `chromium`, `firefox`, `webkit`)
 
 ## Browser performance tuning (embedded Chromium)
 
 If video playback feels choppy in the embedded browser, the app now enables a persistent disk cache and Chromium GPU/media flags by default.
+
+For Playwright-based web automation (`grok_web_automation.py`), you can also choose the browser engine:
+
+```bash
+export GROK_PLAYWRIGHT_BROWSER=firefox
+# or: webkit / chromium
+```
 
 You can override cache sizing via environment variables:
 
