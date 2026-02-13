@@ -615,21 +615,89 @@ class MainWindow(QMainWindow):
                     const common = { bubbles: true, cancelable: true, composed: true };
                     const emulateClick = (el) => {
                         if (!el || !isVisible(el) || el.disabled) return false;
-                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mousedown", common));
-                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mouseup", common));
                         el.dispatchEvent(new MouseEvent("click", common));
                         return true;
                     };
 
-                    const modelTrigger = document.querySelector("#model-select-trigger");
-                    if (!modelTrigger) {
-                        return { ok: false, error: "Model/options trigger (#model-select-trigger) not found" };
+                    const hasVisibleOptionsPanel = () => {
+                        const popupSelectors = [
+                            "[role='dialog']",
+                            "[role='menu']",
+                            "[role='listbox']",
+                            "[data-state='open']",
+                            "[data-expanded='true']",
+                            "[aria-modal='true']"
+                        ];
+                        return popupSelectors.some((selector) => [...document.querySelectorAll(selector)]
+                            .some((el) => isVisible(el) && /(video|720|10\s*s|16\s*:\s*9)/i.test((el.textContent || "").trim())));
+                    };
+
+                    const triggerCandidates = [
+                        "#model-select-trigger",
+                        "button[aria-haspopup='dialog']",
+                        "button[aria-haspopup='menu']",
+                        "button[aria-expanded='false']",
+                        "button[aria-expanded='true']",
+                        "[role='button'][aria-haspopup='dialog']",
+                        "[role='button'][aria-haspopup='menu']",
+                        "button"
+                    ];
+
+                    const byText = (el) => /(^|\s)(model|options?|settings?)($|\s)/i.test((el.textContent || "").trim());
+                    let trigger = null;
+                    for (const selector of triggerCandidates) {
+                        const matches = [...document.querySelectorAll(selector)]
+                            .filter((el) => isVisible(el) && !el.disabled)
+                            .filter((el) => selector !== "button" || byText(el));
+                        if (matches.length) {
+                            trigger = matches[0];
+                            break;
+                        }
                     }
 
-                    const opened = emulateClick(modelTrigger);
-                    return { ok: opened, opened };
+                    if (!trigger) {
+                        return { ok: false, error: "Model/options trigger not found", panelVisible: hasVisibleOptionsPanel() };
+                    }
+
+                    const opened = emulateClick(trigger);
+                    return {
+                        ok: opened || hasVisibleOptionsPanel(),
+                        opened,
+                        panelVisible: hasVisibleOptionsPanel(),
+                        triggerText: (trigger.textContent || "").trim(),
+                        triggerId: trigger.id || ""
+                    };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+
+        verify_prompt_script = r"""
+            (() => {
+                try {
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    if (!promptInput) return { ok: false, error: "Prompt input not found during verification" };
+                    const value = promptInput.isContentEditable ? (promptInput.textContent || "") : (promptInput.value || "");
+                    return { ok: !!value.trim(), filledLength: value.length };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+
+        verify_options_open_script = r"""
+            (() => {
+                try {
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const popupSelectors = ["[role='dialog']", "[role='menu']", "[role='listbox']", "[data-state='open']", "[data-expanded='true']", "[aria-modal='true']"];
+                    const panelVisible = popupSelectors.some((selector) => [...document.querySelectorAll(selector)]
+                        .some((el) => isVisible(el) && /(video|720|10\s*s|16\s*:\s*9)/i.test((el.textContent || "").trim())));
+                    return { ok: panelVisible, panelVisible };
                 } catch (err) {
                     return { ok: false, error: String(err && err.stack ? err.stack : err) };
                 }
@@ -668,9 +736,9 @@ class MainWindow(QMainWindow):
                     const emulateClick = (el) => {
                         if (!el || !isVisible(el) || el.disabled) return false;
                         const common = { bubbles: true, cancelable: true, composed: true };
-                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mousedown", common));
-                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mouseup", common));
                         el.dispatchEvent(new MouseEvent("click", common));
                         return true;
@@ -755,9 +823,9 @@ class MainWindow(QMainWindow):
                     const common = { bubbles: true, cancelable: true, composed: true };
                     const emulateClick = (el) => {
                         if (!el || !isVisible(el) || el.disabled) return false;
-                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mousedown", common));
-                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mouseup", common));
                         el.dispatchEvent(new MouseEvent("click", common));
                         return true;
@@ -826,9 +894,9 @@ class MainWindow(QMainWindow):
 
                     const common = { bubbles: true, cancelable: true, composed: true };
                     const emulateClick = (el) => {
-                        el.dispatchEvent(new PointerEvent("pointerdown", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mousedown", common));
-                        el.dispatchEvent(new PointerEvent("pointerup", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
                         el.dispatchEvent(new MouseEvent("mouseup", common));
                         el.dispatchEvent(new MouseEvent("click", common));
                     };
@@ -913,30 +981,71 @@ class MainWindow(QMainWindow):
             )
 
         def _continue_after_options_open(open_result):
-            if not isinstance(open_result, dict) or not open_result.get("ok"):
-                self.pending_manual_variant_for_download = None
+            open_ok = isinstance(open_result, dict) and bool(open_result.get("ok"))
+            panel_visible = isinstance(open_result, dict) and bool(open_result.get("panelVisible"))
+            if not open_ok:
                 open_error = open_result.get("error") if isinstance(open_result, dict) else open_result
-                self._append_log(f"ERROR: Failed while opening options window for variant {variant}: {open_error!r}")
-                self.generate_btn.setEnabled(True)
+                self._append_log(
+                    f"WARNING: Opening options window returned an error for variant {variant}: {open_error!r}. "
+                    "Verifying whether options are already visible before bailing."
+                )
+
+            def _after_verify_options_open(verify_result):
+                verified_open = isinstance(verify_result, dict) and bool(verify_result.get("ok"))
+                if not (open_ok or panel_visible or verified_open):
+                    self.pending_manual_variant_for_download = None
+                    details = verify_result.get("error") if isinstance(verify_result, dict) else verify_result
+                    self._append_log(
+                        f"ERROR: Failed while opening options window for variant {variant}: {details!r}"
+                    )
+                    self.generate_btn.setEnabled(True)
+                    return
+
+                self._append_log(f"Options window opened for variant {variant}; setting options after {action_delay_ms}ms delay.")
+                QTimer.singleShot(
+                    action_delay_ms,
+                    lambda: self.browser.page().runJavaScript(set_options_script, _continue_after_options_set),
+                )
+
+            if open_ok or panel_visible:
+                _after_verify_options_open({"ok": True})
                 return
 
-            self._append_log(f"Options window opened for variant {variant}; setting options after {action_delay_ms}ms delay.")
             QTimer.singleShot(
-                action_delay_ms,
-                lambda: self.browser.page().runJavaScript(set_options_script, _continue_after_options_set),
+                400,
+                lambda: self.browser.page().runJavaScript(verify_options_open_script, _after_verify_options_open),
             )
 
         def after_submit(result):
-            if not isinstance(result, dict) or not result.get("ok"):
+            fill_ok = isinstance(result, dict) and bool(result.get("ok"))
+            if not fill_ok:
                 error_detail = result.get("error") if isinstance(result, dict) else result
                 self._append_log(
                     f"WARNING: Manual prompt fill reported an error for variant {variant}: {error_detail!r}. "
-                    "Continuing with option selection and forced submit."
+                    "Verifying current field content before continuing."
                 )
-                QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open))
+
+            def _after_verify_prompt(verify_result):
+                verify_ok = isinstance(verify_result, dict) and bool(verify_result.get("ok"))
+                if not (fill_ok or verify_ok):
+                    verify_error = verify_result.get("error") if isinstance(verify_result, dict) else verify_result
+                    self._append_log(
+                        f"WARNING: Prompt fill verification did not confirm content for variant {variant}: {verify_error!r}. "
+                        "Continuing with option selection and forced submit anyway."
+                    )
+                QTimer.singleShot(
+                    action_delay_ms,
+                    lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open),
+                )
+
+            if fill_ok:
+                _after_verify_prompt({"ok": True})
                 return
 
-            QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open))
+            QTimer.singleShot(
+                250,
+                lambda: self.browser.page().runJavaScript(verify_prompt_script, _after_verify_prompt),
+            )
 
         self.browser.page().runJavaScript(script, after_submit)
 
