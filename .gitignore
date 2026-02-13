@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.qtwebengine
 users.db
 downloads/
 youtube_token_*.json

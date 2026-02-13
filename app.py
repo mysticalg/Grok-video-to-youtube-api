@@ -678,7 +678,7 @@ class MainWindow(QMainWindow):
             "without forcing page navigation..."
         )
         QTimer.singleShot(
-            900 + browser_page_pause_ms,
+            9000 + browser_page_pause_ms,
             lambda: self._upload_frame_into_grok(frame_path, on_uploaded=self._wait_for_continue_upload_reload),
         )
         self._append_log(
@@ -1690,7 +1690,7 @@ class MainWindow(QMainWindow):
 
     def _wait_for_continue_upload_reload(self) -> None:
         self.continue_from_frame_waiting_for_reload = True
-        self.continue_from_frame_reload_timeout_timer.start(2000)
+        self.continue_from_frame_reload_timeout_timer.start(10000)
         self._append_log(
             "Continue-from-last-frame: image pasted. Grok should auto-reload after upload; "
             "waiting for the new page before entering the continuation prompt..."
