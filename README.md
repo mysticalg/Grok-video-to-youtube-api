@@ -22,6 +22,11 @@ This project is now a **desktop Python GUI app** instead of a Flask web server.
 5. Play selected videos in an in-app video preview player.
 6. Open a local video file and preview it in the same in-app player.
 7. Extract the last frame from a generated video, save it to `downloads/`, and copy it to clipboard for pasting into Grok's "Type to imagine" tab.
+8. Continue from the latest generated video by copying its last frame, auto-pasting it into Grok, and starting a new manual generation.
+9. Manual mode repeat count now queues full generation runs and decrements to zero as each video is downloaded.
+10. Quickly return to Grok with the **Show Browser (grok.com)** button.
+11. Stitch all currently listed videos into a single output file in creation order.
+12. Upload a selected video to YouTube by entering title and description in an upload dialog.
 
 ## Quick start
 
@@ -87,4 +92,5 @@ python app.py
 - Downloaded videos are saved under `downloads/`.
 - The right-hand pane is always present and opens `https://grok.com` so you can quickly use "Type to imagine".
 - The local video preview now uses Qt Multimedia (`QMediaPlayer` + `QVideoWidget`) for more reliable playback.
-- Last-frame extraction requires `ffmpeg` in `PATH`.
+- Last-frame extraction and video stitching require `ffmpeg` in `PATH`.
+- YouTube upload requires a valid OAuth client secret file at `client_secret.json` (written token stored in `youtube_token.json`).

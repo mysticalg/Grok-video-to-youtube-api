@@ -13,6 +13,8 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngin
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -27,6 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
+
+from youtube_uploader import upload_video_to_youtube
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
@@ -281,6 +285,7 @@ class MainWindow(QMainWindow):
         self.video_playback_hack_timer.setSingleShot(True)
         self.video_playback_hack_timer.timeout.connect(self._ensure_browser_video_playback)
         self._playback_hack_success_logged = False
+        self.last_extracted_frame_path: Path | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -350,6 +355,22 @@ class MainWindow(QMainWindow):
         self.extract_frame_btn = QPushButton("Extract Last Frame + Copy Image")
         self.extract_frame_btn.clicked.connect(self.extract_last_frame_from_selected)
         left_layout.addWidget(self.extract_frame_btn)
+
+        self.continue_frame_btn = QPushButton("Continue from Last Frame (paste + generate)")
+        self.continue_frame_btn.clicked.connect(self.continue_from_last_frame)
+        left_layout.addWidget(self.continue_frame_btn)
+
+        self.show_browser_btn = QPushButton("Show Browser (grok.com)")
+        self.show_browser_btn.clicked.connect(self.show_browser_page)
+        left_layout.addWidget(self.show_browser_btn)
+
+        self.stitch_btn = QPushButton("Stitch All Videos")
+        self.stitch_btn.clicked.connect(self.stitch_all_videos)
+        left_layout.addWidget(self.stitch_btn)
+
+        self.upload_youtube_btn = QPushButton("Upload Selected to YouTube")
+        self.upload_youtube_btn.clicked.connect(self.upload_selected_to_youtube)
+        left_layout.addWidget(self.upload_youtube_btn)
 
         left_layout.addWidget(QLabel("Generated Videos"))
         self.video_picker = QComboBox()
@@ -562,14 +583,13 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
     def _start_manual_browser_generation(self, prompt: str, count: int) -> None:
-        self.manual_generation_queue = [{"prompt": prompt, "variant": 1}]
+        self.manual_generation_queue = [{"prompt": prompt, "variant": idx} for idx in range(1, count + 1)]
         self.generate_btn.setEnabled(False)
         self._append_log(
             "Manual mode now reuses the current browser page exactly as-is. "
             "No navigation or reload will happen."
         )
-        if count > 1:
-            self._append_log("Manual mode populates one prompt per click; ignoring Count and filling once.")
+        self._append_log(f"Manual mode queued with repeat count={count}.")
         self._append_log("Attempting to populate the visible 'Type to imagine' prompt box on the current page...")
         self._submit_next_manual_variant()
 
@@ -580,6 +600,7 @@ class MainWindow(QMainWindow):
             return
 
         item = self.manual_generation_queue.pop(0)
+        remaining_count = len(self.manual_generation_queue)
         prompt = item["prompt"]
         variant = item["variant"]
         self.pending_manual_variant_for_download = variant
@@ -587,7 +608,7 @@ class MainWindow(QMainWindow):
         action_delay_ms = 2000
         self._append_log(
             f"Populating prompt for manual variant {variant} in browser, setting video options, "
-            f"then force submitting with {action_delay_ms}ms delays between each action..."
+            f"then force submitting with {action_delay_ms}ms delays between each action. Remaining repeats after this: {remaining_count}."
         )
 
         escaped_prompt = repr(prompt)
@@ -1261,6 +1282,21 @@ class MainWindow(QMainWindow):
             return
 
         video_path = self.videos[index]["video_file_path"]
+        frame_path = self._extract_last_frame(video_path)
+        if frame_path is None:
+            return
+
+        if not self._copy_image_to_clipboard(frame_path):
+            return
+
+        self.last_extracted_frame_path = frame_path
+        self.browser.setUrl(QUrl.fromLocalFile(str(frame_path)))
+        self._append_log(
+            "Extracted last frame and copied it to clipboard as an image. "
+            f"Saved to: {frame_path}. You can now paste it into Grok's 'Type to imagine' tab."
+        )
+
+    def _extract_last_frame(self, video_path: str) -> Path | None:
         frame_path = DOWNLOAD_DIR / f"last_frame_{int(time.time() * 1000)}.png"
 
         try:
@@ -1283,26 +1319,207 @@ class MainWindow(QMainWindow):
             )
         except FileNotFoundError:
             QMessageBox.critical(self, "ffmpeg Missing", "ffmpeg is required for frame extraction but was not found in PATH.")
-            return
+            return None
         except subprocess.CalledProcessError as exc:
             QMessageBox.critical(self, "Frame Extraction Failed", exc.stderr[-800:] or "ffmpeg failed.")
-            return
+            return None
+
+        return frame_path
+
+    def _copy_image_to_clipboard(self, frame_path: Path) -> bool:
 
         image = QImage(str(frame_path))
         if image.isNull():
             QMessageBox.critical(self, "Frame Extraction Failed", "Frame image could not be loaded.")
-            return
+            return False
 
         mime = QMimeData()
         mime.setImageData(image)
         mime.setText(str(frame_path))
         QGuiApplication.clipboard().setMimeData(mime)
+        return True
 
-        self.browser.setUrl(QUrl.fromLocalFile(str(frame_path)))
-        self._append_log(
-            "Extracted last frame and copied it to clipboard as an image. "
-            f"Saved to: {frame_path}. You can now paste it into Grok's 'Type to imagine' tab."
-        )
+    def _paste_clipboard_image_into_grok(self) -> None:
+        focus_script = r"""
+            (() => {
+                const selectors = [
+                    "textarea[placeholder*='Type to imagine' i]",
+                    "input[placeholder*='Type to imagine' i]",
+                    "div.tiptap.ProseMirror[contenteditable='true']",
+                    "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]"
+                ];
+                const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                for (const selector of selectors) {
+                    const node = [...document.querySelectorAll(selector)].find((el) => isVisible(el));
+                    if (node) {
+                        node.focus();
+                        return { ok: true };
+                    }
+                }
+                return { ok: false, error: 'Type to imagine input not found for paste' };
+            })()
+        """
+
+        def after_focus(result):
+            if not isinstance(result, dict) or not result.get("ok"):
+                self._append_log("WARNING: Could not focus Grok prompt input before image paste.")
+                return
+            self.browser.triggerPageAction(QWebEnginePage.WebAction.Paste)
+            self._append_log("Pasted last frame image from clipboard into the browser prompt box.")
+
+        self.browser.page().runJavaScript(focus_script, after_focus)
+
+    def continue_from_last_frame(self) -> None:
+        source = self.prompt_source.currentData()
+        if source != "manual":
+            QMessageBox.warning(self, "Manual Mode Required", "Set Prompt Source to 'Manual prompt (no API)' for frame continuation.")
+            return
+
+        if not self.videos:
+            QMessageBox.warning(self, "No Videos", "Generate or open a video first.")
+            return
+
+        manual_prompt = self.manual_prompt.toPlainText().strip()
+        if not manual_prompt:
+            QMessageBox.warning(self, "Missing Manual Prompt", "Enter a manual prompt for the continuation run.")
+            return
+
+        latest_video = self.videos[-1]["video_file_path"]
+        frame_path = self._extract_last_frame(latest_video)
+        if frame_path is None:
+            return
+        if not self._copy_image_to_clipboard(frame_path):
+            return
+
+        self.last_extracted_frame_path = frame_path
+        self._append_log(f"Copied last frame from latest video: {frame_path}")
+        self.show_browser_page()
+        QTimer.singleShot(200, self._paste_clipboard_image_into_grok)
+        QTimer.singleShot(600, lambda: self._start_manual_browser_generation(manual_prompt, self.count.value()))
+
+    def show_browser_page(self) -> None:
+        self.browser.setUrl(QUrl("https://grok.com"))
+        self._append_log("Navigated embedded browser to grok.com.")
+
+    def stitch_all_videos(self) -> None:
+        if len(self.videos) < 2:
+            QMessageBox.warning(self, "Need More Videos", "At least two videos are required to stitch.")
+            return
+
+        list_file = DOWNLOAD_DIR / f"stitch_list_{int(time.time() * 1000)}.txt"
+        output_file = DOWNLOAD_DIR / f"stitched_{int(time.time() * 1000)}.mp4"
+
+        concat_lines = []
+        for video in self.videos:
+            quoted_path = Path(video["video_file_path"]).as_posix().replace("'", "'\\''")
+            concat_lines.append(f"file '{quoted_path}'")
+        list_file.write_text("\n".join(concat_lines), encoding="utf-8")
+
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(list_file),
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "fast",
+                    "-crf",
+                    "20",
+                    "-c:a",
+                    "aac",
+                    str(output_file),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except FileNotFoundError:
+            QMessageBox.critical(self, "ffmpeg Missing", "ffmpeg is required for stitching but was not found in PATH.")
+            return
+        except subprocess.CalledProcessError as exc:
+            QMessageBox.critical(self, "Stitch Failed", exc.stderr[-800:] or "ffmpeg failed.")
+            return
+        finally:
+            if list_file.exists():
+                list_file.unlink()
+
+        stitched_video = {
+            "title": "Stitched Video",
+            "prompt": "stitched",
+            "resolution": "mixed",
+            "video_file_path": str(output_file),
+            "source_url": "local-stitch",
+        }
+        self.on_video_finished(stitched_video)
+
+    def upload_selected_to_youtube(self) -> None:
+        index = self.video_picker.currentIndex()
+        if index < 0 or index >= len(self.videos):
+            QMessageBox.warning(self, "No Video Selected", "Select a video to upload first.")
+            return
+
+        video_path = self.videos[index]["video_file_path"]
+        title, description, accepted = self._show_youtube_upload_dialog()
+        if not accepted:
+            return
+
+        client_secret_file = str(BASE_DIR / "client_secret.json")
+        token_file = str(BASE_DIR / "youtube_token.json")
+        if not Path(client_secret_file).exists():
+            QMessageBox.critical(self, "Missing client_secret.json", f"Expected: {client_secret_file}")
+            return
+
+        self.upload_youtube_btn.setEnabled(False)
+        self._append_log("Starting YouTube upload...")
+        try:
+            video_id = upload_video_to_youtube(
+                client_secret_file=client_secret_file,
+                token_file=token_file,
+                video_path=video_path,
+                title=title,
+                description=description,
+                tags=["grok", "ai", "generated-video"],
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "YouTube Upload Failed", str(exc))
+            self._append_log(f"ERROR: YouTube upload failed: {exc}")
+        else:
+            self._append_log(f"YouTube upload complete. Video ID: {video_id}")
+            QMessageBox.information(self, "YouTube Upload Complete", f"Video uploaded successfully. ID: {video_id}")
+        finally:
+            self.upload_youtube_btn.setEnabled(True)
+
+    def _show_youtube_upload_dialog(self) -> tuple[str, str, bool]:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("YouTube Upload Details")
+        dialog_layout = QVBoxLayout(dialog)
+
+        dialog_layout.addWidget(QLabel("YouTube Title"))
+        title_input = QLineEdit()
+        title_input.setText("AI Generated Video")
+        dialog_layout.addWidget(title_input)
+
+        dialog_layout.addWidget(QLabel("YouTube Description"))
+        description_input = QPlainTextEdit()
+        description_input.setPlaceholderText("Describe this upload...")
+        dialog_layout.addWidget(description_input)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        dialog_layout.addWidget(button_box)
+
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        return title_input.text().strip(), description_input.toPlainText().strip(), accepted
 
 
 if __name__ == "__main__":
