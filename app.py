@@ -241,6 +241,7 @@ class FilteredWebEnginePage(QWebEnginePage):
         "react-i18next:: useTranslation",
         "Permissions-Policy header: Unrecognized feature: 'pointer-lock'",
         "violates the following Content Security Policy directive",
+        "Play failed: [object DOMException]",
     )
 
     def __init__(self, on_console_message, parent=None):
@@ -270,6 +271,10 @@ class MainWindow(QMainWindow):
         self.manual_download_poll_timer = QTimer(self)
         self.manual_download_poll_timer.setSingleShot(True)
         self.manual_download_poll_timer.timeout.connect(self._poll_for_manual_video)
+        self.video_playback_hack_timer = QTimer(self)
+        self.video_playback_hack_timer.setInterval(2500)
+        self.video_playback_hack_timer.timeout.connect(self._ensure_browser_video_playback)
+        self._playback_hack_success_logged = False
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -370,7 +375,9 @@ class MainWindow(QMainWindow):
         browser_settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
 
         self.browser.setUrl(QUrl("https://grok.com"))
+        self.browser.loadFinished.connect(self._on_browser_load_finished)
         self.browser.page().profile().downloadRequested.connect(self._on_browser_download_requested)
+        self.video_playback_hack_timer.start()
 
         self._toggle_prompt_source_fields()
 
@@ -388,6 +395,91 @@ class MainWindow(QMainWindow):
 
     def _append_log(self, text: str) -> None:
         self.log.appendPlainText(text)
+
+    def _on_browser_load_finished(self, ok: bool) -> None:
+        if ok:
+            self._playback_hack_success_logged = False
+            self._ensure_browser_video_playback()
+
+    def _ensure_browser_video_playback(self) -> None:
+        if not hasattr(self, "browser") or self.browser is None:
+            return
+
+        script = r"""
+            (() => {
+                try {
+                    const videos = [...document.querySelectorAll("video")];
+                    if (!videos.length) return { ok: true, found: 0, attempted: 0, playing: 0 };
+
+                    const common = { bubbles: true, cancelable: true, composed: true };
+                    const synthClick = (el) => {
+                        if (!el) return;
+                        try {
+                            el.dispatchEvent(new PointerEvent("pointerdown", common));
+                            el.dispatchEvent(new MouseEvent("mousedown", common));
+                            el.dispatchEvent(new PointerEvent("pointerup", common));
+                            el.dispatchEvent(new MouseEvent("mouseup", common));
+                            el.dispatchEvent(new MouseEvent("click", common));
+                        } catch (_) {}
+                    };
+
+                    let attempted = 0;
+                    let playing = 0;
+                    for (const video of videos) {
+                        try {
+                            video.muted = true;
+                            video.defaultMuted = true;
+                            video.autoplay = true;
+                            video.playsInline = true;
+                            video.loop = false;
+                            video.setAttribute("muted", "");
+                            video.setAttribute("autoplay", "");
+                            video.setAttribute("playsinline", "");
+                            video.setAttribute("webkit-playsinline", "");
+                            video.controls = true;
+
+                            const st = getComputedStyle(video);
+                            if (st.display === "none") video.style.display = "block";
+                            if (st.visibility === "hidden") video.style.visibility = "visible";
+                            if (Number(st.opacity || "1") < 0.1) video.style.opacity = "1";
+
+                            if (video.paused || video.readyState < 2) {
+                                attempted += 1;
+                                const p = video.play();
+                                if (p && typeof p.catch === "function") {
+                                    p.catch(() => {
+                                        const playButton = video.closest("[role='button'], button")
+                                            || video.parentElement?.querySelector("button, [role='button']");
+                                        synthClick(playButton);
+                                        const p2 = video.play();
+                                        if (p2 && typeof p2.catch === "function") p2.catch(() => {});
+                                    });
+                                }
+                            }
+
+                            if (!video.paused && !video.ended && video.currentTime >= 0) {
+                                playing += 1;
+                            }
+                        } catch (_) {}
+                    }
+
+                    return { ok: true, found: videos.length, attempted, playing };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+
+        def after(result):
+            if not isinstance(result, dict) or not result.get("ok"):
+                return
+            if result.get("found", 0) > 0 and result.get("playing", 0) > 0 and not self._playback_hack_success_logged:
+                self._append_log(
+                    f"Playback hack active: {result.get('playing')}/{result.get('found')} embedded video element(s) are playing."
+                )
+                self._playback_hack_success_logged = True
+
+        self.browser.page().runJavaScript(script, after)
 
     def start_generation(self) -> None:
         concept = self.concept.toPlainText().strip()
