@@ -629,9 +629,11 @@ class MainWindow(QMainWindow):
         self._append_log(
             f"Continue iteration {iteration}/{self.continue_from_frame_target_count}: copied last frame {frame_path}"
         )
-        self.show_browser_page()
         browser_page_pause_ms = 200
-        self._append_log("Continue-from-last-frame: starting image paste into Grok prompt area...")
+        self._append_log(
+            "Continue-from-last-frame: starting image paste into the current Grok prompt area "
+            "without forcing page navigation..."
+        )
         QTimer.singleShot(
             900 + browser_page_pause_ms,
             lambda: self._upload_frame_into_grok(frame_path, on_uploaded=self._wait_for_continue_upload_reload),
@@ -1351,6 +1353,8 @@ class MainWindow(QMainWindow):
                 self.video_picker.addItem(f"Manual Browser Video {variant} (web)")
                 self.video_picker.setCurrentIndex(self.video_picker.count() - 1)
                 self._append_log(f"Saved: {video_path}")
+                self._append_log("Download complete; returning embedded browser to grok.com/imagine.")
+                QTimer.singleShot(0, self.show_browser_page)
                 self.pending_manual_variant_for_download = None
                 self.manual_download_click_sent = False
                 self.manual_download_started_at = None
@@ -1606,7 +1610,8 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_waiting_for_reload = True
         self.continue_from_frame_reload_timeout_timer.start(45000)
         self._append_log(
-            "Continue-from-last-frame: image pasted. Waiting for Grok to finish upload and reload before entering prompt..."
+            "Continue-from-last-frame: image pasted. Grok should auto-reload after upload; "
+            "waiting for the new page before entering the continuation prompt..."
         )
 
     def _on_continue_reload_timeout(self) -> None:
