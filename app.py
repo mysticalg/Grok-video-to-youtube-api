@@ -615,8 +615,12 @@ class MainWindow(QMainWindow):
             f"Continue iteration {iteration}/{self.continue_from_frame_target_count}: copied last frame {frame_path}"
         )
         self.show_browser_page()
-        QTimer.singleShot(900, lambda: self._upload_frame_into_grok(frame_path))
-        QTimer.singleShot(2600, lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1))
+        browser_page_pause_ms = 200
+        QTimer.singleShot(900 + browser_page_pause_ms, lambda: self._upload_frame_into_grok(frame_path))
+        QTimer.singleShot(
+            2600 + browser_page_pause_ms,
+            lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1),
+        )
 
     def _submit_next_manual_variant(self) -> None:
         if not self.manual_generation_queue:
@@ -1156,7 +1160,15 @@ class MainWindow(QMainWindow):
         if time.time() > deadline:
             self.pending_manual_variant_for_download = None
             self.manual_download_click_sent = False
+            self.manual_download_started_at = None
+            self.manual_download_deadline = None
             self._append_log(f"ERROR: Variant {variant} did not produce a downloadable video in time.")
+            if self.continue_from_frame_active:
+                self._append_log("Continue-from-last-frame stopped because download polling timed out.")
+                self.continue_from_frame_active = False
+                self.continue_from_frame_target_count = 0
+                self.continue_from_frame_completed = 0
+                self.continue_from_frame_prompt = ""
             return
 
         script = """
@@ -1305,6 +1317,7 @@ class MainWindow(QMainWindow):
                 self.pending_manual_variant_for_download = None
                 self.manual_download_click_sent = False
                 self.manual_download_started_at = None
+                self.manual_download_deadline = None
                 if self.continue_from_frame_active:
                     self.continue_from_frame_completed += 1
                     if self.continue_from_frame_completed < self.continue_from_frame_target_count:
@@ -1322,6 +1335,7 @@ class MainWindow(QMainWindow):
                 self.pending_manual_variant_for_download = None
                 self.manual_download_click_sent = False
                 self.manual_download_started_at = None
+                self.manual_download_deadline = None
                 self.continue_from_frame_active = False
                 self.continue_from_frame_target_count = 0
                 self.continue_from_frame_completed = 0
