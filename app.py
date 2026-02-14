@@ -883,8 +883,7 @@ class MainWindow(QMainWindow):
         if not manual_prompt:
             QMessageBox.warning(self, "Missing Manual Prompt", "Please enter a manual prompt.")
             return
-
-        self.show_browser_page()
+        
         self._start_manual_browser_image_generation(manual_prompt, self.count.value())
 
     def _start_manual_browser_generation(self, prompt: str, count: int) -> None:
