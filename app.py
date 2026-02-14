@@ -2439,16 +2439,42 @@ class MainWindow(QMainWindow):
 
                 const buttons = [...document.querySelectorAll("button")]
                     .filter((btn) => isVisible(btn) && !btn.disabled);
-                const regenerateButton = buttons.find((btn) => {
-                    const label = (btn.getAttribute("aria-label") || btn.textContent || "").trim();
-                    return /(redo|regenerate|try\s+again)/i.test(label);
+
+                const buttonText = (btn) => ((btn && (btn.innerText || btn.textContent)) || "").replace(/\s+/g, " ").trim();
+                const buttonAria = (btn) => ((btn && btn.getAttribute("aria-label")) || "").trim();
+
+                // Primary target for the reported UI shape:
+                // <button aria-label="Make video">...<span>Redo</span>...</button>
+                let regenerateButton = buttons.find((btn) => {
+                    const text = buttonText(btn);
+                    const aria = buttonAria(btn);
+                    return /redo/i.test(text) && /make\s+video/i.test(aria || "");
                 });
 
+                // Fallbacks for other label variants.
                 if (!regenerateButton) {
-                    return { status: "regenerate-not-found" };
+                    regenerateButton = buttons.find((btn) => {
+                        const combined = `${buttonAria(btn)} ${buttonText(btn)}`.trim();
+                        return /(redo|regenerate|try\s+again)/i.test(combined);
+                    });
                 }
 
-                const label = (regenerateButton.getAttribute("aria-label") || regenerateButton.textContent || "").trim();
+                // Last-resort fallback: in this retry path, a visible Make video button generally means regenerate.
+                if (!regenerateButton) {
+                    regenerateButton = buttons.find((btn) => /make\s+video/i.test(buttonAria(btn)));
+                }
+
+                if (!regenerateButton) {
+                    return {
+                        status: "regenerate-not-found",
+                        sampledButtons: buttons.slice(0, 8).map((btn) => ({
+                            aria: buttonAria(btn),
+                            text: buttonText(btn),
+                        })),
+                    };
+                }
+
+                const label = `${buttonAria(regenerateButton)} ${buttonText(regenerateButton)}`.trim() || "Redo";
                 return {
                     status: emulateClick(regenerateButton) ? "regenerate-clicked" : "regenerate-visible",
                     buttonLabel: label,
@@ -2467,8 +2493,12 @@ class MainWindow(QMainWindow):
                     f"Variant {variant}: '{button_label}' is visible but click did not register; continuing polling to retry."
                 )
             else:
+                sampled_buttons = result.get("sampledButtons") if isinstance(result, dict) else None
+                sampled_text = ""
+                if sampled_buttons:
+                    sampled_text = f" Visible button samples: {sampled_buttons}"
                 self._append_log(
-                    f"Variant {variant}: regenerate button not found; continuing video polling to recover automatically."
+                    f"Variant {variant}: regenerate button not found; continuing video polling to recover automatically.{sampled_text}"
                 )
 
             self.manual_download_poll_timer.start(1200)
