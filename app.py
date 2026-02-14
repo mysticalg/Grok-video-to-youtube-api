@@ -1957,9 +1957,10 @@ class MainWindow(QMainWindow):
             def _after_continue_submit(submit_result):
                 if not isinstance(submit_result, dict) or not submit_result.get("ok"):
                     error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
-                    self._append_log(
-                        f"WARNING: Continue-mode submit for variant {variant} reported an issue: {error_detail!r}."
-                    )
+                    if error_detail not in (None, "", "callback-empty"):
+                        self._append_log(
+                            f"Continue-mode submit for variant {variant} reported an issue: {error_detail!r}; continuing to video download polling."
+                        )
                 else:
                     button_label = submit_result.get("buttonAriaLabel") or submit_result.get("buttonText") or "Make video"
                     self._append_log(f"Continue-mode submit clicked '{button_label}' for variant {variant}.")
@@ -1971,19 +1972,21 @@ class MainWindow(QMainWindow):
             fill_ok = isinstance(result, dict) and bool(result.get("ok"))
             if not fill_ok:
                 error_detail = result.get("error") if isinstance(result, dict) else result
-                self._append_log(
-                    f"WARNING: Manual prompt fill reported an error for variant {variant}: {error_detail!r}. "
-                    "Verifying current field content before continuing."
-                )
+                if error_detail not in (None, "", "callback-empty"):
+                    self._append_log(
+                        f"Manual prompt fill reported an issue for variant {variant}: {error_detail!r}. "
+                        "Verifying current field content before continuing."
+                    )
 
             def _after_verify_prompt(verify_result):
                 verify_ok = isinstance(verify_result, dict) and bool(verify_result.get("ok"))
                 if not (fill_ok or verify_ok):
                     verify_error = verify_result.get("error") if isinstance(verify_result, dict) else verify_result
-                    self._append_log(
-                        f"WARNING: Prompt fill verification did not confirm content for variant {variant}: {verify_error!r}. "
-                        "Continuing with option selection and forced submit anyway."
-                    )
+                    if verify_error not in (None, "", "callback-empty"):
+                        self._append_log(
+                            f"Prompt fill verification did not confirm content for variant {variant}: {verify_error!r}. "
+                            "Continuing with option selection and forced submit anyway."
+                        )
                 if self.continue_from_frame_active:
                     _run_continue_mode_submit()
                 else:
@@ -2635,7 +2638,7 @@ class MainWindow(QMainWindow):
             return
         self.continue_from_frame_waiting_for_reload = False
         self._append_log(
-            "WARNING: Timed out waiting for upload-triggered reload. Continuing anyway with prompt submission."
+            "Timed out waiting for upload-triggered reload; continuing with prompt submission."
         )
         self._start_manual_browser_generation(self.continue_from_frame_prompt, 1)
 
