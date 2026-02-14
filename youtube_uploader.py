@@ -18,6 +18,7 @@ def upload_video_to_youtube(
     title: str,
     description: str,
     tags: list[str],
+    youtube_api_key: str = "",
 ) -> str:
     creds = None
     token_path = Path(token_file)
@@ -33,7 +34,7 @@ def upload_video_to_youtube(
             creds = flow.run_local_server(port=0)
         token_path.write_text(creds.to_json())
 
-    youtube = build("youtube", "v3", credentials=creds)
+    youtube = build("youtube", "v3", credentials=creds, developerKey=(youtube_api_key or None))
 
     request = youtube.videos().insert(
         part="snippet,status",
