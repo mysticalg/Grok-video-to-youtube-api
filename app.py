@@ -359,10 +359,6 @@ class MainWindow(QMainWindow):
         self.generate_image_btn.clicked.connect(self.start_image_generation)
         actions_layout.addWidget(self.generate_image_btn, 0, 1)
 
-        self.open_btn = QPushButton("Open Local Video...")
-        self.open_btn.clicked.connect(self.open_local_video)
-        actions_layout.addWidget(self.open_btn, 1, 0)
-
 
         self.continue_frame_btn = QPushButton("Continue from Last Frame (paste + generate)")
         self.continue_frame_btn.clicked.connect(self.continue_from_last_frame)
@@ -2022,13 +2018,6 @@ class MainWindow(QMainWindow):
         self.player.setSource(QUrl.fromLocalFile(file_path))
         self.player.play()
         self._append_log(f"Selected video for preview: {file_path}")
-
-    def open_local_video(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select video", str(DOWNLOAD_DIR), "Videos (*.mp4 *.mov *.webm)")
-        if not file_path:
-            return
-        self._preview_video(file_path)
-        self._append_log(f"Opened local file for preview: {file_path}")
 
     def play_preview(self) -> None:
         if self.player.source().isEmpty():
