@@ -300,8 +300,8 @@ class FilteredWebEnginePage(QWebEnginePage):
 
 
 class MainWindow(QMainWindow):
-    MANUAL_IMAGE_PICK_RETRY_LIMIT = 8
-    MANUAL_IMAGE_SUBMIT_RETRY_LIMIT = 4
+    MANUAL_IMAGE_PICK_RETRY_LIMIT = 3
+    MANUAL_IMAGE_SUBMIT_RETRY_LIMIT = 3
 
     def __init__(self):
         super().__init__()
