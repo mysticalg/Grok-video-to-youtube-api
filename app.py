@@ -304,6 +304,7 @@ class MainWindow(QMainWindow):
         self.manual_image_generation_queue: list[dict] = []
         self.pending_manual_variant_for_download: int | None = None
         self.pending_manual_download_type: str | None = None
+        self.pending_manual_image_prompt: str | None = None
         self.manual_download_deadline: float | None = None
         self.manual_download_click_sent = False
         self.manual_download_in_progress = False
@@ -921,6 +922,7 @@ class MainWindow(QMainWindow):
         item["attempts"] = attempts
         self.pending_manual_variant_for_download = variant
         self.pending_manual_download_type = "image"
+        self.pending_manual_image_prompt = prompt
         self.manual_download_click_sent = False
 
         populate_script = rf"""
@@ -1209,68 +1211,90 @@ class MainWindow(QMainWindow):
         if variant is None or self.pending_manual_download_type != "image":
             return
 
-        script = """
-            (() => {
+        prompt = self.pending_manual_image_prompt or ""
+        script = f"""
+            (() => {{
+                const prompt = {prompt!r};
                 const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                const common = { bubbles: true, cancelable: true, composed: true };
-                const emulateClick = (el) => {
+                const common = {{ bubbles: true, cancelable: true, composed: true }};
+                const emulateClick = (el) => {{
                     if (!el || !isVisible(el) || el.disabled) return false;
-                    try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
+                    try {{ el.dispatchEvent(new PointerEvent("pointerdown", common)); }} catch (_) {{}}
                     el.dispatchEvent(new MouseEvent("mousedown", common));
-                    try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
+                    try {{ el.dispatchEvent(new PointerEvent("pointerup", common)); }} catch (_) {{}}
                     el.dispatchEvent(new MouseEvent("mouseup", common));
                     el.dispatchEvent(new MouseEvent("click", common));
                     return true;
-                };
+                }};
 
-                const firstImage = [...document.querySelectorAll("img")]
-                    .filter((el) => isVisible(el) && el.src && /^https?:/i.test(el.src) && el.naturalWidth > 0 && el.naturalHeight > 0)
-                    .sort((a, b) => {
-                        const ar = a.getBoundingClientRect();
-                        const br = b.getBoundingClientRect();
-                        if (ar.top !== br.top) return ar.top - br.top;
-                        return ar.left - br.left;
-                    })[0];
+                const listItems = [...document.querySelectorAll("[role='listitem']")]
+                    .filter((el) => isVisible(el) && !!el.querySelector("img"));
+                if (!listItems.length) return {{ ok: false, status: "waiting-for-generated-list-items" }};
 
-                if (!firstImage) return { ok: false, status: "waiting-for-image" };
+                const firstItem = listItems[0];
+                const clickedImage = emulateClick(firstItem) || emulateClick(firstItem.querySelector("img"));
+                if (!clickedImage) return {{ ok: false, status: "image-list-item-click-failed" }};
 
-                const clickedImage = emulateClick(firstImage);
-
-                const downloadSelectors = [
-                    "a[download]",
-                    "button[aria-label*='download' i]",
-                    "a[aria-label*='download' i]",
-                    "[role='button'][aria-label*='download' i]",
-                    "button:has(svg[aria-label*='download' i])",
-                    "button"
+                const promptSelectors = [
+                    "textarea[placeholder*='Type to customize video' i]",
+                    "input[placeholder*='Type to customize video' i]",
+                    "textarea[placeholder*='Type to imagine' i]",
+                    "input[placeholder*='Type to imagine' i]",
+                    "div.tiptap.ProseMirror[contenteditable='true']",
+                    "[contenteditable='true'][aria-label*='Type to customize video' i]",
+                    "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
                 ];
+                const promptInput = promptSelectors.map((sel) => document.querySelector(sel)).find(Boolean);
+                if (!promptInput) return {{ ok: false, status: "image-clicked-waiting-prompt-input" }};
 
-                let downloadEl = null;
-                for (const selector of downloadSelectors) {
-                    const candidates = [...document.querySelectorAll(selector)]
-                        .filter((el) => isVisible(el) && /(download|save image)/i.test((el.getAttribute("aria-label") || el.textContent || "").trim()));
-                    if (candidates.length) {
-                        downloadEl = candidates[0];
-                        break;
-                    }
-                }
+                promptInput.focus();
+                if (promptInput.isContentEditable) {{
+                    const paragraph = document.createElement("p");
+                    paragraph.textContent = prompt;
+                    promptInput.replaceChildren(paragraph);
+                    promptInput.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                    promptInput.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                }} else {{
+                    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(promptInput), "value")?.set;
+                    if (setter) setter.call(promptInput, prompt);
+                    else promptInput.value = prompt;
+                    promptInput.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                    promptInput.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                }}
 
-                if (!downloadEl) {
-                    return { ok: false, status: clickedImage ? "image-opened-waiting-download" : "image-click-failed" };
-                }
+                const submitButton = [...document.querySelectorAll("button[type='submit'], button[aria-label*='submit' i], button")]
+                    .find((btn) => isVisible(btn) && !btn.disabled && /submit|make\\s+video/i.test((btn.getAttribute("aria-label") || btn.textContent || "").trim()));
+                if (!submitButton) return {{ ok: false, status: "prompt-filled-waiting-submit" }};
 
-                const clickedDownload = emulateClick(downloadEl);
-                return { ok: clickedDownload, status: clickedDownload ? "download-clicked" : "download-click-failed" };
-            })()
+                const submitted = emulateClick(submitButton);
+                return {{
+                    ok: submitted,
+                    status: submitted ? "image-picked-and-video-submitted" : "submit-click-failed",
+                    buttonLabel: (submitButton.getAttribute("aria-label") || submitButton.textContent || "").trim(),
+                }};
+            }})()
         """
 
         def _after_poll(result):
-            if isinstance(result, dict) and result.get("ok"):
-                self._append_log(f"Variant {variant} image opened; in-page download clicked.")
-                self.manual_download_in_progress = True
+            current_variant = self.pending_manual_variant_for_download
+            if current_variant is None:
                 return
+
+            if isinstance(result, dict) and result.get("ok"):
+                label = result.get("buttonLabel") or "submit"
+                self._append_log(
+                    f"Variant {current_variant}: first generated image selected and '{label}' clicked; waiting for video render/download."
+                )
+                self.pending_manual_download_type = "video"
+                self._trigger_browser_video_download(current_variant)
+                return
+
             status = result.get("status") if isinstance(result, dict) else "unknown"
-            self._append_log(f"Variant {variant} image download not ready yet ({status}); retrying...")
+            self._append_log(
+                f"Variant {current_variant}: generated image not ready for pick+submit yet ({status}); retrying..."
+            )
             QTimer.singleShot(3000, self._poll_for_manual_image)
 
         self.browser.page().runJavaScript(script, _after_poll)
@@ -2087,6 +2111,7 @@ class MainWindow(QMainWindow):
                     self._append_log(f"Saved image: {video_path}")
                     self.pending_manual_variant_for_download = None
                     self.pending_manual_download_type = None
+                    self.pending_manual_image_prompt = None
                     self.manual_download_click_sent = False
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
@@ -2100,6 +2125,7 @@ class MainWindow(QMainWindow):
                     )
                     self.pending_manual_variant_for_download = None
                     self.pending_manual_download_type = None
+                    self.pending_manual_image_prompt = None
                     self.manual_download_click_sent = False
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
@@ -2130,6 +2156,7 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, self.show_browser_page)
                 self.pending_manual_variant_for_download = None
                 self.pending_manual_download_type = None
+                self.pending_manual_image_prompt = None
                 self.manual_download_click_sent = False
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
@@ -2152,6 +2179,7 @@ class MainWindow(QMainWindow):
                 self._append_log(f"ERROR: Download interrupted for manual variant {variant}.")
                 self.pending_manual_variant_for_download = None
                 self.pending_manual_download_type = None
+                self.pending_manual_image_prompt = None
                 self.manual_download_click_sent = False
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
@@ -2173,6 +2201,7 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_reload_timeout_timer.stop()
         self.pending_manual_variant_for_download = None
         self.pending_manual_download_type = None
+        self.pending_manual_image_prompt = None
         self.manual_download_click_sent = False
         self.manual_download_in_progress = False
         self.manual_download_started_at = None
