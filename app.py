@@ -2038,13 +2038,16 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(continue_submit_script, _after_continue_submit))
 
         prompt_fill_attempt_count = 0
+        prompt_fill_seen_success = False
         max_prompt_fill_attempts = 3
 
         def after_submit(result):
-            nonlocal prompt_fill_attempt_count
+            nonlocal prompt_fill_attempt_count, prompt_fill_seen_success
             prompt_fill_attempt_count += 1
 
             fill_ok = isinstance(result, dict) and bool(result.get("ok"))
+            if fill_ok:
+                prompt_fill_seen_success = True
             if not fill_ok:
                 error_detail = result.get("error") if isinstance(result, dict) else result
                 if error_detail not in (None, "", "callback-empty"):
@@ -2074,16 +2077,18 @@ class MainWindow(QMainWindow):
                     has_any_text = isinstance(verify_result, dict) and bool(verify_result.get("hasAnyText"))
                     best_score = float(verify_result.get("bestScore") or 0.0) if isinstance(verify_result, dict) else 0.0
                     preview = (verify_result.get("valuePreview") or "") if isinstance(verify_result, dict) else ""
-                    if has_any_text and best_score >= 0.45:
+                    can_proceed = prompt_fill_seen_success or (has_any_text and best_score >= 0.30)
+                    if can_proceed:
                         self._append_log(
                             f"WARNING: Continue-mode prompt text could not be strictly confirmed for variant {variant} "
-                            f"after {max_prompt_fill_attempts} attempts (score={best_score:.2f}); proceeding with submit. "
-                            f"Preview={preview!r}"
+                            f"after {max_prompt_fill_attempts} attempts (score={best_score:.2f}, fill_ok_seen={prompt_fill_seen_success}); "
+                            f"proceeding with submit. Preview={preview!r}"
                         )
                     else:
                         self._append_log(
                             f"ERROR: Continue-mode prompt text could not be confirmed for variant {variant} after "
-                            f"{max_prompt_fill_attempts} attempts; stopping to avoid submitting the wrong prompt."
+                            f"{max_prompt_fill_attempts} attempts (score={best_score:.2f}, fill_ok_seen={prompt_fill_seen_success}); "
+                            "stopping to avoid submitting the wrong prompt."
                         )
                         self.continue_from_frame_active = False
                         self.continue_from_frame_target_count = 0
