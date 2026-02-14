@@ -490,6 +490,11 @@ class MainWindow(QMainWindow):
         self.openai_chat_model = QLineEdit(os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"))
         form_layout.addRow("OpenAI Chat Model", self.openai_chat_model)
 
+        self.youtube_api_key = QLineEdit()
+        self.youtube_api_key.setEchoMode(QLineEdit.Password)
+        self.youtube_api_key.setText(os.getenv("YOUTUBE_API_KEY", ""))
+        form_layout.addRow("YouTube API Key", self.youtube_api_key)
+
         dialog_layout.addLayout(form_layout)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -533,6 +538,7 @@ class MainWindow(QMainWindow):
             "prompt_source": self.prompt_source.currentData(),
             "openai_api_key": self.openai_api_key.text(),
             "openai_chat_model": self.openai_chat_model.text(),
+            "youtube_api_key": self.youtube_api_key.text(),
             "concept": self.concept.toPlainText(),
             "manual_prompt": self.manual_prompt.toPlainText(),
             "count": self.count.value(),
@@ -556,6 +562,8 @@ class MainWindow(QMainWindow):
             self.openai_api_key.setText(str(preferences["openai_api_key"]))
         if "openai_chat_model" in preferences:
             self.openai_chat_model.setText(str(preferences["openai_chat_model"]))
+        if "youtube_api_key" in preferences:
+            self.youtube_api_key.setText(str(preferences["youtube_api_key"]))
         if "concept" in preferences:
             self.concept.setPlainText(str(preferences["concept"]))
         if "manual_prompt" in preferences:
@@ -2066,6 +2074,7 @@ class MainWindow(QMainWindow):
                 title=title,
                 description=description,
                 tags=["grok", "ai", "generated-video"],
+                youtube_api_key=self.youtube_api_key.text().strip(),
             )
         except Exception as exc:
             QMessageBox.critical(self, "YouTube Upload Failed", str(exc))
