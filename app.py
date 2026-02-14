@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QSpinBox,
     QSplitter,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -50,7 +51,7 @@ DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/dhookster/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases"
 GITHUB_ACTIONS_RUNS_URL = f"{GITHUB_REPO_URL}/actions/workflows/windows-build-release.yml"
-BUY_ME_A_COFFEE_URL = "https://www.buymeacoffee.com/dhookster"
+BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/dhooksterm"
 PAYPAL_DONATION_URL = "https://www.paypal.com/paypalme/dhookster"
 SOL_DONATION_ADDRESS = "6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp"
 
@@ -346,6 +347,80 @@ class MainWindow(QMainWindow):
         self._playback_hack_success_logged = False
         self.last_extracted_frame_path: Path | None = None
         self._build_ui()
+        self._apply_space_age_theme()
+
+    def _apply_space_age_theme(self) -> None:
+        self.setStyleSheet(
+            """
+            QMainWindow {
+                background-color: #070b14;
+            }
+            QWidget {
+                color: #e6edf7;
+                font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif;
+                font-size: 12px;
+            }
+            QGroupBox {
+                border: 1px solid #233046;
+                border-radius: 12px;
+                margin-top: 12px;
+                padding: 12px 10px 10px 10px;
+                background-color: #0d1524;
+            }
+            QGroupBox::title {
+                color: #8be9fd;
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+                font-weight: 700;
+            }
+            QPlainTextEdit, QLineEdit, QComboBox, QSpinBox, QTextBrowser {
+                background-color: #0a1220;
+                color: #e8f0ff;
+                border: 1px solid #2f466a;
+                border-radius: 8px;
+                padding: 6px;
+                selection-background-color: #2a4f80;
+            }
+            QPlainTextEdit:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                border: 1px solid #69d2ff;
+            }
+            QPushButton {
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                border: 1px solid #8be9fd;
+            }
+            QPushButton:pressed {
+                padding-top: 9px;
+            }
+            QMenuBar {
+                background-color: #0a1220;
+                color: #e6edf7;
+                border-bottom: 1px solid #24354e;
+            }
+            QMenuBar::item:selected, QMenu::item:selected {
+                background: #1e2f49;
+                color: #8be9fd;
+            }
+            QMenu {
+                background-color: #0d1524;
+                border: 1px solid #24354e;
+                color: #e6edf7;
+            }
+            QSplitter::handle {
+                background-color: #1f314d;
+            }
+            QToolTip {
+                background-color: #16253b;
+                color: #dff6ff;
+                border: 1px solid #69d2ff;
+                padding: 6px;
+            }
+            """
+        )
 
     def _build_ui(self) -> None:
         splitter = QSplitter()
@@ -355,7 +430,7 @@ class MainWindow(QMainWindow):
 
         self._build_model_api_settings_dialog()
 
-        prompt_group = QGroupBox("Prompt Inputs")
+        prompt_group = QGroupBox("✨ Prompt Inputs")
         prompt_group_layout = QVBoxLayout(prompt_group)
 
         prompt_group_layout.addWidget(QLabel("Concept"))
@@ -385,38 +460,74 @@ class MainWindow(QMainWindow):
         prompt_group_layout.addWidget(QLabel("Model/API settings moved to menu: Model/API Settings"))
         left_layout.addWidget(prompt_group)
 
-        actions_group = QGroupBox("Actions")
+        actions_group = QGroupBox("🚀 Actions")
         actions_layout = QGridLayout(actions_group)
 
-        self.generate_btn = QPushButton("Generate Video")
+        self.generate_btn = QPushButton("🎬 Generate Video")
+        self.generate_btn.setToolTip("Generate videos from the selected prompt source.")
+        self.generate_btn.setStyleSheet(
+            "background-color: #2e7d32; color: white; font-weight: 700;"
+            "border: 1px solid #1b5e20; border-radius: 6px; padding: 8px;"
+        )
         self.generate_btn.clicked.connect(self.start_generation)
         actions_layout.addWidget(self.generate_btn, 0, 0)
 
-        self.generate_image_btn = QPushButton("Populate Image Prompt in Browser")
+        self.generate_image_btn = QPushButton("🖼️ Populate Image Prompt in Browser")
+        self.generate_image_btn.setToolTip("Build and paste an image prompt into the Grok browser tab.")
+        self.generate_image_btn.setStyleSheet(
+            "background-color: #43a047; color: white; font-weight: 700;"
+            "border: 1px solid #2e7d32; border-radius: 6px; padding: 8px;"
+        )
         self.generate_image_btn.clicked.connect(self.start_image_generation)
         actions_layout.addWidget(self.generate_image_btn, 0, 1)
 
-        self.stop_all_btn = QPushButton("Stop All Jobs")
+        self.stop_all_btn = QPushButton("🛑 Stop All Jobs")
+        self.stop_all_btn.setToolTip("Stop active generation jobs after current requests complete.")
+        self.stop_all_btn.setStyleSheet(
+            "background-color: #8b0000; color: white; font-weight: 700;"
+            "border: 1px solid #5c0000; border-radius: 6px; padding: 8px;"
+        )
         self.stop_all_btn.clicked.connect(self.stop_all_jobs)
         actions_layout.addWidget(self.stop_all_btn, 1, 0)
 
-        self.continue_frame_btn = QPushButton("Continue from Last Frame (paste + generate)")
+        self.continue_frame_btn = QPushButton("🟨 Continue from Last Frame (paste + generate)")
+        self.continue_frame_btn.setToolTip("Use the last generated video's final frame and continue from it.")
+        self.continue_frame_btn.setStyleSheet(
+            "background-color: #fdd835; color: #222; font-weight: 700;"
+            "border: 1px solid #f9a825; border-radius: 6px; padding: 8px;"
+        )
         self.continue_frame_btn.clicked.connect(self.continue_from_last_frame)
         actions_layout.addWidget(self.continue_frame_btn, 2, 0)
 
-        self.continue_image_btn = QPushButton("Continue from Local Image (paste + generate)")
+        self.continue_image_btn = QPushButton("🖼️ Continue from Local Image (paste + generate)")
+        self.continue_image_btn.setToolTip("Choose a local image and continue generation from that frame.")
+        self.continue_image_btn.setStyleSheet(
+            "background-color: #fff176; color: #222; font-weight: 700;"
+            "border: 1px solid #fbc02d; border-radius: 6px; padding: 8px;"
+        )
         self.continue_image_btn.clicked.connect(self.continue_from_local_image)
         actions_layout.addWidget(self.continue_image_btn, 2, 1)
 
-        self.show_browser_btn = QPushButton("Show Browser (grok.com/imagine)")
+        self.show_browser_btn = QPushButton("🌐 Show Browser (grok.com/imagine)")
+        self.show_browser_btn.setToolTip("Bring the embedded Grok browser to the front.")
+        self.show_browser_btn.setStyleSheet(
+            "background-color: #ffffff; color: #222; font-weight: 700;"
+            "border: 1px solid #cfcfcf; border-radius: 6px; padding: 8px;"
+        )
         self.show_browser_btn.clicked.connect(self.show_browser_page)
         actions_layout.addWidget(self.show_browser_btn, 3, 0)
 
-        self.stitch_btn = QPushButton("Stitch All Videos")
+        self.stitch_btn = QPushButton("🧵 Stitch All Videos")
+        self.stitch_btn.setToolTip("Combine all downloaded videos into one stitched output file.")
+        self.stitch_btn.setStyleSheet(
+            "background-color: #81d4fa; color: #0d47a1; font-weight: 700;"
+            "border: 1px solid #4fc3f7; border-radius: 6px; padding: 8px;"
+        )
         self.stitch_btn.clicked.connect(self.stitch_all_videos)
         actions_layout.addWidget(self.stitch_btn, 3, 1)
 
-        self.upload_youtube_btn = QPushButton("Upload Selected to YouTube")
+        self.upload_youtube_btn = QPushButton("📤 Upload Selected to YouTube")
+        self.upload_youtube_btn.setToolTip("Upload the currently selected local video to your YouTube channel.")
         self.upload_youtube_btn.clicked.connect(self.upload_selected_to_youtube)
         actions_layout.addWidget(self.upload_youtube_btn, 4, 0, 1, 2)
 
@@ -462,22 +573,28 @@ class MainWindow(QMainWindow):
         self.browser.loadFinished.connect(self._on_browser_load_finished)
         self.browser_profile.downloadRequested.connect(self._on_browser_download_requested)
 
-        log_group = QGroupBox("Activity Log")
+        log_group = QGroupBox("📡 Activity Log")
         log_layout = QVBoxLayout(log_group)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMinimumHeight(260)
         log_layout.addWidget(self.log)
 
-        preview_group = QGroupBox("Preview")
+        preview_group = QGroupBox("🎞️ Preview")
         preview_layout = QVBoxLayout(preview_group)
         preview_layout.addWidget(self.preview)
 
         preview_controls = QHBoxLayout()
-        self.preview_play_btn = QPushButton("Play")
+        self.preview_play_btn = QPushButton("▶️ Play")
+        self.preview_play_btn.setToolTip("Play the selected video in the preview pane.")
         self.preview_play_btn.clicked.connect(self.play_preview)
         preview_controls.addWidget(self.preview_play_btn)
-        self.preview_stop_btn = QPushButton("Stop")
+        self.preview_stop_btn = QPushButton("⏹️ Stop")
+        self.preview_stop_btn.setToolTip("Stop playback in the preview pane.")
+        self.preview_stop_btn.setStyleSheet(
+            "background-color: #8b0000; color: white; font-weight: 700;"
+            "border: 1px solid #5c0000; border-radius: 6px; padding: 6px 10px;"
+        )
         self.preview_stop_btn.clicked.connect(self.stop_preview)
         preview_controls.addWidget(self.preview_stop_btn)
         preview_layout.addLayout(preview_controls)
@@ -592,22 +709,43 @@ class MainWindow(QMainWindow):
         help_menu.addAction(actions_action)
 
     def show_app_info(self) -> None:
-        QMessageBox.information(
-            self,
-            "App Info",
-            "Grok Video Desktop Studio\n\n"
-            "Version: 1.0.0\n"
-            "Authors: Grok Video Desktop Studio contributors\n"
-            "Desktop workflow: PyQt + embedded Grok browser + YouTube uploader\n\n"
-            "Downloads:\n"
-            f"- Windows binary releases: {GITHUB_RELEASES_URL}\n"
-            f"- Latest workflow artifacts: {GITHUB_ACTIONS_RUNS_URL}\n\n"
-            "If this saves you hours, grab me a ☕.\n\n"
-            "Support links:\n"
-            f"- Buy Me a Coffee: {BUY_ME_A_COFFEE_URL}\n"
-            f"- PayPal: {PAYPAL_DONATION_URL}\n"
-            f"- Crypto (SOL): {SOL_DONATION_ADDRESS}",
+        dialog = QDialog(self)
+        dialog.setWindowTitle("App Info")
+        dialog.setMinimumWidth(680)
+
+        info_browser = QTextBrowser(dialog)
+        info_browser.setOpenExternalLinks(True)
+        info_browser.setReadOnly(True)
+        info_browser.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByKeyboard
         )
+        info_browser.setHtml(
+            "<h3>Grok Video Desktop Studio</h3>"
+            "<p><b>Version:</b> 1.0.0<br>"
+            "<b>Authors:</b> Grok Video Desktop Studio contributors<br>"
+            "<b>Desktop workflow:</b> PyQt + embedded Grok browser + YouTube uploader</p>"
+            "<p><b>Downloads</b><br>"
+            f"- Windows binary releases: <a href='{GITHUB_RELEASES_URL}'>{GITHUB_RELEASES_URL}</a><br>"
+            f"- Latest workflow artifacts: <a href='{GITHUB_ACTIONS_RUNS_URL}'>{GITHUB_ACTIONS_RUNS_URL}</a></p>"
+            "<p>If this saves you hours, grab me a ☕.</p>"
+            "<p><b>Support links</b><br>"
+            f"- Buy Me a Coffee: <a href='{BUY_ME_A_COFFEE_URL}'>{BUY_ME_A_COFFEE_URL}</a><br>"
+            f"- PayPal: <a href='{PAYPAL_DONATION_URL}'>{PAYPAL_DONATION_URL}</a><br>"
+            f"- Crypto (SOL): <code>{SOL_DONATION_ADDRESS}</code></p>"
+        )
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        button_box.rejected.connect(dialog.reject)
+        button_box.button(QDialogButtonBox.StandardButton.Close).clicked.connect(dialog.close)
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(info_browser)
+        layout.addWidget(button_box)
+
+        dialog.exec()
 
     def open_github_page(self) -> None:
         QDesktopServices.openUrl(QUrl(GITHUB_REPO_URL))
@@ -2470,8 +2608,8 @@ class MainWindow(QMainWindow):
         self.openai_api_key.setEnabled(is_openai)
         self.openai_chat_model.setEnabled(is_openai)
         self.chat_model.setEnabled(source == "grok")
-        self.generate_btn.setText("Populate Video Prompt" if is_manual else "Generate Video")
-        self.generate_image_btn.setText("Populate Image Prompt")
+        self.generate_btn.setText("📝 Populate Video Prompt" if is_manual else "🎬 Generate Video")
+        self.generate_image_btn.setText("🖼️ Populate Image Prompt")
         self.generate_image_btn.setEnabled(is_manual)
 
     def _resolve_download_extension(self, download, download_type: str) -> str:
