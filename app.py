@@ -294,6 +294,7 @@ class FilteredWebEnginePage(QWebEnginePage):
 
 class MainWindow(QMainWindow):
     MANUAL_IMAGE_PICK_RETRY_LIMIT = 8
+    MANUAL_IMAGE_SUBMIT_RETRY_LIMIT = 4
 
     def __init__(self):
         super().__init__()
@@ -310,6 +311,7 @@ class MainWindow(QMainWindow):
         self.manual_image_pick_clicked = False
         self.manual_image_video_submit_sent = False
         self.manual_image_pick_retry_count = 0
+        self.manual_image_submit_retry_count = 0
         self.manual_download_deadline: float | None = None
         self.manual_download_click_sent = False
         self.manual_download_in_progress = False
@@ -931,6 +933,7 @@ class MainWindow(QMainWindow):
         self.manual_image_pick_clicked = False
         self.manual_image_video_submit_sent = False
         self.manual_image_pick_retry_count = 0
+        self.manual_image_submit_retry_count = 0
         self.manual_download_click_sent = False
 
         populate_script = rf"""
@@ -1249,6 +1252,18 @@ class MainWindow(QMainWindow):
                     return {{ ok: true, status: "generated-image-clicked" }};
                 }}
 
+                const progressNode = [...document.querySelectorAll("div .tabular-nums, div.tabular-nums")]
+                    .find((el) => isVisible(el) && /^\\d{{1,3}}%$/.test((el.textContent || "").trim()));
+                if (progressNode) {{
+                    return {{ ok: true, status: "video-generation-progress", progressText: (progressNode.textContent || "").trim() }};
+                }}
+
+                const runningButton = [...document.querySelectorAll("button")]
+                    .find((btn) => isVisible(btn) && !btn.disabled && /redo|download/i.test((btn.textContent || "").trim()));
+                if (runningButton) {{
+                    return {{ ok: true, status: "video-generation-running", buttonText: (runningButton.textContent || "").trim() }};
+                }}
+
                 const promptSelectors = [
                     "textarea[placeholder*='Type to customize video' i]",
                     "input[placeholder*='Type to customize video' i]",
@@ -1305,16 +1320,27 @@ class MainWindow(QMainWindow):
                         )
                     self.manual_image_pick_clicked = True
                     self.manual_image_pick_retry_count = 0
+                    self.manual_image_submit_retry_count = 0
                     QTimer.singleShot(1000, self._poll_for_manual_image)
                     return
 
-                if status == "video-submit-clicked":
-                    label = result.get("buttonLabel") or "submit"
+                if status in ("video-submit-clicked", "video-generation-progress", "video-generation-running"):
+                    if status == "video-submit-clicked":
+                        detail = result.get("buttonLabel") or "submit"
+                        message = f"video prompt submitted via '{detail}'"
+                    elif status == "video-generation-progress":
+                        detail = result.get("progressText") or "in-progress"
+                        message = f"video generation already in progress ({detail})"
+                    else:
+                        detail = result.get("buttonText") or "running"
+                        message = f"video generation already running ({detail})"
+
                     if not self.manual_image_video_submit_sent:
                         self._append_log(
-                            f"Variant {current_variant}: video prompt submitted via '{label}'; waiting for video render/download."
+                            f"Variant {current_variant}: {message}; waiting for video render/download."
                         )
                     self.manual_image_video_submit_sent = True
+                    self.manual_image_submit_retry_count = 0
                     self.pending_manual_download_type = "video"
                     self._trigger_browser_video_download(current_variant)
                     return
@@ -1330,10 +1356,30 @@ class MainWindow(QMainWindow):
                     )
                     self.manual_image_pick_clicked = True
                     self.manual_image_pick_retry_count = 0
+                    self.manual_image_submit_retry_count = 0
                     QTimer.singleShot(1000, self._poll_for_manual_image)
                     return
+                self._append_log(
+                    f"Variant {current_variant}: generated image not ready for pick+submit yet ({status}); retrying..."
+                )
+                QTimer.singleShot(3000, self._poll_for_manual_image)
+                return
+
+            self.manual_image_submit_retry_count += 1
+            if self.manual_image_submit_retry_count >= self.MANUAL_IMAGE_SUBMIT_RETRY_LIMIT:
+                self._append_log(
+                    "WARNING: Variant "
+                    f"{current_variant}: submit-stage validation stayed in '{status}' for "
+                    f"{self.manual_image_submit_retry_count} checks; assuming submit succeeded and continuing to download polling."
+                )
+                self.manual_image_video_submit_sent = True
+                self.manual_image_submit_retry_count = 0
+                self.pending_manual_download_type = "video"
+                self._trigger_browser_video_download(current_variant)
+                return
+
             self._append_log(
-                f"Variant {current_variant}: generated image not ready for pick+submit yet ({status}); retrying..."
+                f"Variant {current_variant}: video submit stage not ready yet ({status}); retrying..."
             )
             QTimer.singleShot(3000, self._poll_for_manual_image)
 
@@ -2155,6 +2201,7 @@ class MainWindow(QMainWindow):
                     self.manual_image_pick_clicked = False
                     self.manual_image_video_submit_sent = False
                     self.manual_image_pick_retry_count = 0
+                    self.manual_image_submit_retry_count = 0
                     self.manual_download_click_sent = False
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
@@ -2172,6 +2219,7 @@ class MainWindow(QMainWindow):
                     self.manual_image_pick_clicked = False
                     self.manual_image_video_submit_sent = False
                     self.manual_image_pick_retry_count = 0
+                    self.manual_image_submit_retry_count = 0
                     self.manual_download_click_sent = False
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
@@ -2206,6 +2254,7 @@ class MainWindow(QMainWindow):
                 self.manual_image_pick_clicked = False
                 self.manual_image_video_submit_sent = False
                 self.manual_image_pick_retry_count = 0
+                self.manual_image_submit_retry_count = 0
                 self.manual_download_click_sent = False
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
@@ -2232,6 +2281,7 @@ class MainWindow(QMainWindow):
                 self.manual_image_pick_clicked = False
                 self.manual_image_video_submit_sent = False
                 self.manual_image_pick_retry_count = 0
+                self.manual_image_submit_retry_count = 0
                 self.manual_download_click_sent = False
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
@@ -2257,6 +2307,7 @@ class MainWindow(QMainWindow):
         self.manual_image_pick_clicked = False
         self.manual_image_video_submit_sent = False
         self.manual_image_pick_retry_count = 0
+        self.manual_image_submit_retry_count = 0
         self.manual_download_click_sent = False
         self.manual_download_in_progress = False
         self.manual_download_started_at = None
