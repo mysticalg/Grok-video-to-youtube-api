@@ -376,6 +376,8 @@ class MainWindow(QMainWindow):
 
         config_row.addWidget(api_group, 1)
         config_row.addWidget(prompt_group, 1)
+        config_row.setAlignment(api_group, Qt.AlignTop)
+        config_row.setAlignment(prompt_group, Qt.AlignTop)
         left_layout.addLayout(config_row)
 
         actions_group = QGroupBox("Actions")
@@ -456,6 +458,15 @@ class MainWindow(QMainWindow):
         preview_group = QGroupBox("Preview")
         preview_layout = QVBoxLayout(preview_group)
         preview_layout.addWidget(self.preview)
+
+        preview_controls = QHBoxLayout()
+        self.preview_play_btn = QPushButton("Play")
+        self.preview_play_btn.clicked.connect(self.play_preview)
+        preview_controls.addWidget(self.preview_play_btn)
+        self.preview_stop_btn = QPushButton("Stop")
+        self.preview_stop_btn.clicked.connect(self.stop_preview)
+        preview_controls.addWidget(self.preview_stop_btn)
+        preview_layout.addLayout(preview_controls)
 
         bottom_splitter = QSplitter()
         bottom_splitter.addWidget(preview_group)
@@ -1555,6 +1566,17 @@ class MainWindow(QMainWindow):
             return
         self._preview_video(file_path)
         self._append_log(f"Opened local file for preview: {file_path}")
+
+    def play_preview(self) -> None:
+        if self.player.source().isEmpty():
+            self._append_log("Preview play requested, but no video is currently loaded.")
+            return
+        self.player.play()
+        self._append_log("Preview playback started.")
+
+    def stop_preview(self) -> None:
+        self.player.stop()
+        self._append_log("Preview playback stopped.")
 
     def _toggle_prompt_source_fields(self) -> None:
         source = self.prompt_source.currentData() if hasattr(self, "prompt_source") else "manual"
