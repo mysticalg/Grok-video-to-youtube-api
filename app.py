@@ -3027,7 +3027,7 @@ class MainWindow(QMainWindow):
 
         try:
             if self.stitch_crossfade_checkbox.isChecked():
-                self._append_log("Stitching videos with 0.5s crossfade transitions enabled.")
+                self._append_log(f"Stitching videos with {self.crossfade_duration.value():.1f}s crossfade transitions enabled.")
                 self._stitch_videos_with_crossfade(video_paths, output_file, crossfade_duration=self.crossfade_duration.value())
             else:
                 self._append_log("Stitching videos with hard cuts (no crossfade).")
@@ -3148,32 +3148,42 @@ class MainWindow(QMainWindow):
         for path in video_paths:
             ffmpeg_cmd.extend(["-i", str(path)])
 
-        video_chain = "[0:v]settb=AVTB,format=yuv420p[v0]"
-        audio_chain = ""
-        if has_audio:
-            audio_chain = "[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a0]"
+        filter_parts: list[str] = []
+        for idx in range(len(video_paths)):
+            filter_parts.append(f"[{idx}:v]settb=AVTB,format=yuv420p[vsrc{idx}]")
+            if has_audio:
+                filter_parts.append(
+                    f"[{idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[asrc{idx}]"
+                )
+
         cumulative_duration = durations[0]
+        video_prev = "vsrc0"
+        audio_prev = "asrc0"
 
         for idx in range(1, len(video_paths)):
             offset = cumulative_duration - crossfade_duration
-            video_chain += (
-                f";[v{idx - 1}][{idx}:v]settb=AVTB,format=yuv420p,"
-                f"xfade=transition=fade:duration={crossfade_duration}:offset={offset}[v{idx}]"
+            next_video = f"v{idx}"
+            filter_parts.append(
+                f"[{video_prev}][vsrc{idx}]xfade=transition=fade:duration={crossfade_duration:.3f}:offset={offset:.3f}[{next_video}]"
             )
+            video_prev = next_video
+
             if has_audio:
-                audio_chain += (
-                    f";[a{idx - 1}][{idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,"
-                    f"acrossfade=d={crossfade_duration}:c1=tri:c2=tri[a{idx}]"
+                next_audio = f"a{idx}"
+                filter_parts.append(
+                    f"[{audio_prev}][asrc{idx}]acrossfade=d={crossfade_duration:.3f}:c1=tri:c2=tri[{next_audio}]"
                 )
+                audio_prev = next_audio
+
             cumulative_duration += durations[idx] - crossfade_duration
 
-        filter_complex = video_chain if not has_audio else f"{video_chain};{audio_chain}"
+        filter_complex = ";".join(filter_parts)
         ffmpeg_cmd.extend(
             [
                 "-filter_complex",
                 filter_complex,
                 "-map",
-                f"[v{len(video_paths) - 1}]",
+                f"[{video_prev}]",
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -3184,7 +3194,8 @@ class MainWindow(QMainWindow):
             ]
         )
         if has_audio:
-            ffmpeg_cmd[-1:-1] = ["-map", f"[a{len(video_paths) - 1}]", "-c:a", "aac"]
+            ffmpeg_cmd[-1:-1] = ["-map", f"[{audio_prev}]", "-c:a", "aac"]
+
         subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def upload_selected_to_youtube(self) -> None:
