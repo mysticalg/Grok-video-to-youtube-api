@@ -103,3 +103,23 @@ If you find this useful, please consider donating:
 
 - PayPal: https://www.paypal.com/paypalme/dhookster
 - Crypto (SOL): `6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp`
+
+## Build Windows binaries on GitHub
+
+This repository includes a GitHub Actions workflow at `.github/workflows/windows-build-release.yml`.
+
+- On push to `main`, it builds a Windows executable with PyInstaller and uploads a workflow artifact.
+- On tags that start with `v` (for example `v0.1.1`), it also uploads the same `.zip` to a GitHub Release.
+
+To enable this in your fork/remote:
+
+1. Ensure your repository has this workflow committed.
+2. Push to GitHub.
+3. Create and push a version tag:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+Then download `GrokVideoDesktopStudio-windows-x64.zip` from either Actions artifacts or the tagged Release.
