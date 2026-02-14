@@ -363,9 +363,6 @@ class MainWindow(QMainWindow):
         self.open_btn.clicked.connect(self.open_local_video)
         actions_layout.addWidget(self.open_btn, 1, 0)
 
-        self.extract_frame_btn = QPushButton("Extract Last Frame + Copy Image")
-        self.extract_frame_btn.clicked.connect(self.extract_last_frame_from_selected)
-        actions_layout.addWidget(self.extract_frame_btn, 1, 1)
 
         self.continue_frame_btn = QPushButton("Continue from Last Frame (paste + generate)")
         self.continue_frame_btn.clicked.connect(self.continue_from_last_frame)
@@ -2075,27 +2072,6 @@ class MainWindow(QMainWindow):
             pass
 
         return "png" if download_type == "image" else "mp4"
-
-    def extract_last_frame_from_selected(self) -> None:
-        index = self.video_picker.currentIndex()
-        if index < 0 or index >= len(self.videos):
-            QMessageBox.warning(self, "No Video Selected", "Select a generated video first.")
-            return
-
-        video_path = self.videos[index]["video_file_path"]
-        frame_path = self._extract_last_frame(video_path)
-        if frame_path is None:
-            return
-
-        if not self._copy_image_to_clipboard(frame_path):
-            return
-
-        self.last_extracted_frame_path = frame_path
-        self.browser.setUrl(QUrl.fromLocalFile(str(frame_path)))
-        self._append_log(
-            "Extracted last frame and copied it to clipboard as an image. "
-            f"Saved to: {frame_path}. You can now paste it into Grok's prompt tab."
-        )
 
     def _extract_last_frame(self, video_path: str) -> Path | None:
         frame_path = DOWNLOAD_DIR / f"last_frame_{int(time.time() * 1000)}.png"
