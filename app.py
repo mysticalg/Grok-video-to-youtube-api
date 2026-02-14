@@ -317,6 +317,7 @@ class MainWindow(QMainWindow):
         self.manual_download_click_sent = False
         self.manual_video_start_click_sent = False
         self.manual_video_make_click_fallback_used = False
+        self.manual_video_allow_make_click = True
         self.manual_download_in_progress = False
         self.manual_download_started_at: float | None = None
         self.manual_download_poll_timer = QTimer(self)
@@ -1962,7 +1963,7 @@ class MainWindow(QMainWindow):
                 else:
                     button_label = submit_result.get("buttonAriaLabel") or submit_result.get("buttonText") or "Make video"
                     self._append_log(f"Continue-mode submit clicked '{button_label}' for variant {variant}.")
-                self._trigger_browser_video_download(variant)
+                self._trigger_browser_video_download(variant, allow_make_video_click=False)
 
             QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(continue_submit_script, _after_continue_submit))
 
@@ -2002,12 +2003,13 @@ class MainWindow(QMainWindow):
 
         self.browser.page().runJavaScript(script, after_submit)
 
-    def _trigger_browser_video_download(self, variant: int) -> None:
+    def _trigger_browser_video_download(self, variant: int, allow_make_video_click: bool = True) -> None:
         self.pending_manual_download_type = "video"
         self.manual_download_deadline = time.time() + 420
         self.manual_download_click_sent = False
         self.manual_video_start_click_sent = False
         self.manual_video_make_click_fallback_used = False
+        self.manual_video_allow_make_click = allow_make_video_click
         self.manual_download_in_progress = False
         self.manual_download_started_at = time.time()
         self.manual_download_poll_timer.start(0)
@@ -2027,6 +2029,7 @@ class MainWindow(QMainWindow):
             self.manual_download_click_sent = False
             self.manual_video_start_click_sent = False
             self.manual_video_make_click_fallback_used = False
+            self.manual_video_allow_make_click = True
             self.manual_download_in_progress = False
             self.manual_download_started_at = None
             self.manual_download_deadline = None
@@ -2039,7 +2042,7 @@ class MainWindow(QMainWindow):
                 self.continue_from_frame_prompt = ""
             return
 
-        allow_make_video_click = "true" if not self.manual_video_start_click_sent else "false"
+        allow_make_video_click = "true" if (self.manual_video_allow_make_click and not self.manual_video_start_click_sent) else "false"
         script = f"""
             (() => {{
                 const allowMakeVideoClick = {allow_make_video_click};
@@ -2236,6 +2239,7 @@ class MainWindow(QMainWindow):
                     self.manual_download_click_sent = False
                     self.manual_video_start_click_sent = False
                     self.manual_video_make_click_fallback_used = False
+                    self.manual_video_allow_make_click = True
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
                     self.manual_download_deadline = None
@@ -2269,6 +2273,7 @@ class MainWindow(QMainWindow):
                     self.manual_download_click_sent = False
                     self.manual_video_start_click_sent = False
                     self.manual_video_make_click_fallback_used = False
+                    self.manual_video_allow_make_click = True
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
                     self.manual_download_deadline = None
@@ -2306,6 +2311,7 @@ class MainWindow(QMainWindow):
                 self.manual_download_click_sent = False
                 self.manual_video_start_click_sent = False
                 self.manual_video_make_click_fallback_used = False
+                self.manual_video_allow_make_click = True
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
                 self.manual_download_deadline = None
@@ -2335,6 +2341,7 @@ class MainWindow(QMainWindow):
                 self.manual_download_click_sent = False
                 self.manual_video_start_click_sent = False
                 self.manual_video_make_click_fallback_used = False
+                self.manual_video_allow_make_click = True
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
                 self.manual_download_deadline = None
@@ -2364,6 +2371,7 @@ class MainWindow(QMainWindow):
         self.manual_download_click_sent = False
         self.manual_video_start_click_sent = False
         self.manual_video_make_click_fallback_used = False
+        self.manual_video_allow_make_click = True
         self.manual_download_in_progress = False
         self.manual_download_started_at = None
         self.manual_download_deadline = None
