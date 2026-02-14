@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
         self.manual_image_submit_token = 0
         self.manual_download_deadline: float | None = None
         self.manual_download_click_sent = False
+        self.manual_video_start_click_sent = False
         self.manual_download_in_progress = False
         self.manual_download_started_at: float | None = None
         self.manual_download_poll_timer = QTimer(self)
@@ -2004,6 +2005,7 @@ class MainWindow(QMainWindow):
         self.pending_manual_download_type = "video"
         self.manual_download_deadline = time.time() + 420
         self.manual_download_click_sent = False
+        self.manual_video_start_click_sent = False
         self.manual_download_in_progress = False
         self.manual_download_started_at = time.time()
         self.manual_download_poll_timer.start(0)
@@ -2021,6 +2023,7 @@ class MainWindow(QMainWindow):
         if time.time() > deadline:
             self.pending_manual_variant_for_download = None
             self.manual_download_click_sent = False
+            self.manual_video_start_click_sent = False
             self.manual_download_in_progress = False
             self.manual_download_started_at = None
             self.manual_download_deadline = None
@@ -2033,75 +2036,81 @@ class MainWindow(QMainWindow):
                 self.continue_from_frame_prompt = ""
             return
 
-        script = """
-            (() => {
+        allow_make_video_click = "true" if not self.manual_video_start_click_sent else "false"
+        script = f"""
+            (() => {{
+                const allowMakeVideoClick = {allow_make_video_click};
                 const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                const common = { bubbles: true, cancelable: true, composed: true };
-                const emulateClick = (el) => {
+                const common = {{ bubbles: true, cancelable: true, composed: true }};
+                const emulateClick = (el) => {{
                     if (!el || !isVisible(el) || el.disabled) return false;
-                    try {
+                    try {{
                         el.dispatchEvent(new PointerEvent("pointerdown", common));
                         el.dispatchEvent(new MouseEvent("mousedown", common));
                         el.dispatchEvent(new PointerEvent("pointerup", common));
                         el.dispatchEvent(new MouseEvent("mouseup", common));
                         el.dispatchEvent(new MouseEvent("click", common));
                         return true;
-                    } catch (_) {
-                        try {
+                    }} catch (_) {{
+                        try {{
                             el.click();
                             return true;
-                        } catch (__){
+                        }} catch (__){{
                             return false;
-                        }
-                    }
-                };
+                        }}
+                    }}
+                }};
                 const percentNode = [...document.querySelectorAll("div .tabular-nums, div.tabular-nums")]
-                    .find((el) => isVisible(el) && /^\\d{1,3}%$/.test((el.textContent || "").trim()));
-                if (percentNode) {
-                    return { status: "progress", progressText: (percentNode.textContent || "").trim() };
-                }
+                    .find((el) => isVisible(el) && /^\\d{{1,3}}%$/.test((el.textContent || "").trim()));
+                if (percentNode) {{
+                    return {{ status: "progress", progressText: (percentNode.textContent || "").trim() }};
+                }}
 
                 const redoButton = [...document.querySelectorAll("button")]
                     .find((btn) => isVisible(btn) && !btn.disabled && /redo/i.test((btn.textContent || "").trim()));
 
                 const makeVideoButton = [...document.querySelectorAll("button")]
-                    .find((btn) => {
+                    .find((btn) => {{
                         if (!isVisible(btn) || btn.disabled) return false;
                         const label = (btn.getAttribute("aria-label") || btn.textContent || "").trim();
                         return /make\\s+video/i.test(label);
-                    });
+                    }});
 
                 const downloadButton = [...document.querySelectorAll("button[aria-label='Download'], button")]
                     .find((btn) => isVisible(btn) && !btn.disabled && /download/i.test((btn.getAttribute("aria-label") || btn.textContent || "").trim()));
 
-                if (makeVideoButton && !redoButton) {
-                    return {
+                if (makeVideoButton && !redoButton) {{
+                    const buttonLabel = (makeVideoButton.getAttribute("aria-label") || makeVideoButton.textContent || "").trim();
+                    if (!allowMakeVideoClick) {{
+                        return {{ status: "make-video-awaiting-progress", buttonLabel }};
+                    }}
+                    return {{
                         status: emulateClick(makeVideoButton) ? "make-video-clicked" : "make-video-visible",
-                        buttonLabel: (makeVideoButton.getAttribute("aria-label") || makeVideoButton.textContent || "").trim(),
-                    };
-                }
+                        buttonLabel,
+                    }};
+                }}
 
-                if (!redoButton) {
-                    return { status: "waiting-for-redo" };
-                }
+                if (!redoButton) {{
+                    return {{ status: "waiting-for-redo" }};
+                }}
 
-                if (downloadButton) {
-                    return {
+                if (downloadButton) {{
+                    return {{
                         status: emulateClick(downloadButton) ? "download-clicked" : "download-visible",
-                    };
-                }
+                    }};
+                }}
 
                 const video = document.querySelector("video");
                 const source = document.querySelector("video source");
                 const src = (video && (video.currentSrc || video.src)) || (source && source.src) || "";
                 const enoughData = !!(video && video.readyState >= 3 && Number(video.duration || 0) > 0);
-                return {
+                return {{
                     status: src ? (enoughData ? "video-src-ready" : "video-buffering") : "waiting",
                     src,
                     readyState: video ? video.readyState : 0,
                     duration: video ? Number(video.duration || 0) : 0,
-                };
-            })()
+                }};
+            }})()
         """
 
         def after_poll(result):
@@ -2117,6 +2126,7 @@ class MainWindow(QMainWindow):
             progress_text = (result.get("progressText") or "").strip()
 
             if status == "progress":
+                self.manual_video_start_click_sent = True
                 if progress_text:
                     self._append_log(f"Variant {current_variant} still rendering: {progress_text}")
                 self.manual_download_poll_timer.start(3000)
@@ -2125,6 +2135,11 @@ class MainWindow(QMainWindow):
             if status == "make-video-clicked":
                 label = (result.get("buttonLabel") or "Make video").strip()
                 self._append_log(f"Variant {current_variant}: clicked '{label}' to start video generation.")
+                self.manual_video_start_click_sent = True
+                self.manual_download_poll_timer.start(3000)
+                return
+
+            if status == "make-video-awaiting-progress":
                 self.manual_download_poll_timer.start(3000)
                 return
 
@@ -2210,6 +2225,7 @@ class MainWindow(QMainWindow):
                     self.manual_image_pick_retry_count = 0
                     self.manual_image_submit_retry_count = 0
                     self.manual_download_click_sent = False
+                    self.manual_video_start_click_sent = False
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
                     self.manual_download_deadline = None
@@ -2228,6 +2244,7 @@ class MainWindow(QMainWindow):
                     self.manual_image_pick_retry_count = 0
                     self.manual_image_submit_retry_count = 0
                     self.manual_download_click_sent = False
+                    self.manual_video_start_click_sent = False
                     self.manual_download_in_progress = False
                     self.manual_download_started_at = None
                     self.manual_download_deadline = None
@@ -2263,6 +2280,7 @@ class MainWindow(QMainWindow):
                 self.manual_image_pick_retry_count = 0
                 self.manual_image_submit_retry_count = 0
                 self.manual_download_click_sent = False
+                self.manual_video_start_click_sent = False
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
                 self.manual_download_deadline = None
@@ -2290,6 +2308,7 @@ class MainWindow(QMainWindow):
                 self.manual_image_pick_retry_count = 0
                 self.manual_image_submit_retry_count = 0
                 self.manual_download_click_sent = False
+                self.manual_video_start_click_sent = False
                 self.manual_download_in_progress = False
                 self.manual_download_started_at = None
                 self.manual_download_deadline = None
@@ -2317,6 +2336,7 @@ class MainWindow(QMainWindow):
         self.manual_image_submit_retry_count = 0
         self.manual_image_submit_token += 1
         self.manual_download_click_sent = False
+        self.manual_video_start_click_sent = False
         self.manual_download_in_progress = False
         self.manual_download_started_at = None
         self.manual_download_deadline = None
