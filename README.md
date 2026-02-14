@@ -17,6 +17,7 @@ A desktop-first Python/PyQt app for generating Grok videos, iterating quickly in
 - Stitch all listed videos into one final output, with optional 0.5s crossfade blending between clips.
 - Configure video options (including crossfade duration) from settings.
 - Set a custom download folder in settings.
+- Set a default manual prompt template in settings.
 - Upload a selected video to YouTube.
 
 ## Download Windows binary (recommended)

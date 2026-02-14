@@ -58,6 +58,10 @@ GITHUB_ACTIONS_RUNS_URL = f"{GITHUB_REPO_URL}/actions/workflows/windows-build-re
 BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/dhooksterm"
 PAYPAL_DONATION_URL = "https://www.paypal.com/paypalme/dhookster"
 SOL_DONATION_ADDRESS = "6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp"
+DEFAULT_MANUAL_PROMPT_TEXT = (
+    "abstract surreal artistic photorealistic strange random dream like scifi fast moving camera, "
+    "fast moving fractals morphing and intersecting, highly detailed"
+)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -493,10 +497,7 @@ class MainWindow(QMainWindow):
         prompt_group_layout.addWidget(QLabel("Manual Prompt (used only when source is Manual)"))
         self.manual_prompt = QPlainTextEdit()
         self.manual_prompt.setPlaceholderText("Paste or write an exact prompt to skip prompt APIs...")
-        self.manual_prompt.setPlainText(
-            "abstract surreal artistic photorealistic strange random dream like scifi fast moving camera, "
-            "fast moving fractals morphing and intersecting, highly detailed"
-        )
+        self.manual_prompt.setPlainText(self.manual_prompt_default_input.toPlainText().strip() or DEFAULT_MANUAL_PROMPT_TEXT)
         self.manual_prompt.setMaximumHeight(110)
         prompt_group_layout.addWidget(self.manual_prompt)
 
@@ -786,6 +787,12 @@ class MainWindow(QMainWindow):
         self.crossfade_duration.valueChanged.connect(self._sync_video_options_label)
         form_layout.addRow("Crossfade Duration", self.crossfade_duration)
 
+        self.manual_prompt_default_input = QPlainTextEdit()
+        self.manual_prompt_default_input.setMaximumHeight(90)
+        self.manual_prompt_default_input.setPlaceholderText("Default text used to prefill Manual Prompt.")
+        self.manual_prompt_default_input.setPlainText(DEFAULT_MANUAL_PROMPT_TEXT)
+        form_layout.addRow("Default Manual Prompt", self.manual_prompt_default_input)
+
         dialog_layout.addLayout(form_layout)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -932,6 +939,7 @@ class MainWindow(QMainWindow):
             "youtube_api_key": self.youtube_api_key.text(),
             "concept": self.concept.toPlainText(),
             "manual_prompt": self.manual_prompt.toPlainText(),
+            "manual_prompt_default": self.manual_prompt_default_input.toPlainText(),
             "count": self.count.value(),
             "stitch_crossfade_enabled": self.stitch_crossfade_checkbox.isChecked(),
             "crossfade_duration": self.crossfade_duration.value(),
@@ -964,6 +972,11 @@ class MainWindow(QMainWindow):
             self.concept.setPlainText(str(preferences["concept"]))
         if "manual_prompt" in preferences:
             self.manual_prompt.setPlainText(str(preferences["manual_prompt"]))
+        if "manual_prompt_default" in preferences:
+            default_prompt = str(preferences["manual_prompt_default"])
+            self.manual_prompt_default_input.setPlainText(default_prompt)
+            if "manual_prompt" not in preferences:
+                self.manual_prompt.setPlainText(default_prompt)
         if "count" in preferences:
             try:
                 self.count.setValue(int(preferences["count"]))
