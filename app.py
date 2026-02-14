@@ -1968,7 +1968,9 @@ class MainWindow(QMainWindow):
                 else:
                     button_label = submit_result.get("buttonAriaLabel") or submit_result.get("buttonText") or "Make video"
                     self._append_log(f"Continue-mode submit clicked '{button_label}' for variant {variant}.")
-                self._trigger_browser_video_download(variant, allow_make_video_click=False)
+                # Keep make-video fallback enabled here because Grok's UI can ignore synthetic clicks
+                # during transitional states; download polling can then retry by clicking the visible action.
+                self._trigger_browser_video_download(variant, allow_make_video_click=True)
 
             QTimer.singleShot(action_delay_ms, lambda: self.browser.page().runJavaScript(continue_submit_script, _after_continue_submit))
 
