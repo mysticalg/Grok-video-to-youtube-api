@@ -1,34 +1,21 @@
 # Grok Video Desktop Studio (Windows GUI) — **Beta**
 
-**Version:** `0.1.0`
+**Version:** `1.0.0`
 
-This project is now a **desktop Python GUI app** instead of a Flask web server.
+A desktop-first Python/PyQt app for generating Grok videos, iterating quickly in-browser, and uploading finished results to YouTube.
 
-## What changed
+## What it does
 
-- No web server routes/pages.
-- Removed legacy Flask template files (`templates/index.html`, `templates/dashboard.html`).
-- Uses a split-pane desktop layout.
-- The **browser is permanently embedded in the right-hand pane** using Qt WebEngine.
-- The left pane contains Grok settings, concept input, generate controls, and logs.
-
-## Features
-
-1. Enter Grok API key and video model (API key only required for API-driven generation).
-2. Choose prompt generation mode:
-   - Manual prompt (no prompt API call)
-   - Grok API prompt generation
-   - OpenAI API prompt generation
-3. Generate one or more video variants from a concept or manual prompt.
-4. Keep a generated-video list in the GUI session.
-5. Play selected videos in an in-app video preview player.
-6. Open a local video file and preview it in the same in-app player.
-7. Extract the last frame from a generated video, save it to `downloads/`, and copy it to clipboard for pasting into Grok's "Type to imagine" tab.
-8. Continue from the latest generated video by copying its last frame, auto-pasting it into Grok, and starting a new manual generation.
-9. Manual mode repeat count now queues full generation runs and decrements to zero as each video is downloaded.
-10. Quickly return to Grok with the **Show Browser (grok.com)** button.
-11. Stitch all currently listed videos into a single output file in creation order.
-12. Upload a selected video to YouTube by entering title and description in an upload dialog.
+- Generate videos from:
+  - Manual prompts (embedded browser workflow)
+  - Grok API prompt generation
+  - OpenAI API prompt generation
+- Queue multiple variants in one run.
+- Keep a generated-video list in-session.
+- Preview generated or local videos inside the app.
+- Continue from the latest frame or a local seed image.
+- Stitch all listed videos into one final output.
+- Upload a selected video to YouTube.
 
 ## Quick start
 
@@ -61,22 +48,12 @@ python app.py
 
 ## Browser performance tuning (embedded Chromium)
 
-If video playback feels choppy in the embedded browser, the app now enables a persistent disk cache and Chromium GPU/media flags by default.
+If in-app playback feels choppy, the app enables a persistent disk cache and Chromium GPU/media flags by default.
 
-For Playwright-based web automation (`grok_web_automation.py`), you can also choose the browser engine:
+Optional overrides:
 
-```bash
-export GROK_PLAYWRIGHT_BROWSER=firefox
-# or: webkit / chromium
-```
-
-You can override cache sizing via environment variables:
-
-- `GROK_BROWSER_DISK_CACHE_BYTES` (default: `536870912`, i.e. 512 MB)
-- `GROK_BROWSER_MEDIA_CACHE_BYTES` (default: `268435456`, i.e. 256 MB)
-
-You can also append custom Chromium flags with:
-
+- `GROK_BROWSER_DISK_CACHE_BYTES` (default: `536870912`, 512 MB)
+- `GROK_BROWSER_MEDIA_CACHE_BYTES` (default: `268435456`, 256 MB)
 - `QTWEBENGINE_CHROMIUM_FLAGS`
 
 Example:
@@ -90,26 +67,34 @@ python app.py
 
 ## Notes
 
-- In **Manual prompt** mode, clicking Generate uses the embedded right-pane browser session at `grok.com/imagine` (no xAI API call), submits your prompt, waits for output, and downloads the generated video into `downloads/`.
+- Manual prompt mode runs against the embedded `grok.com/imagine` browser session (no xAI API generation call).
 - Downloaded videos are saved under `downloads/`.
-- The right-hand pane is always present and opens `https://grok.com` so you can quickly use "Type to imagine".
-- The local video preview now uses Qt Multimedia (`QMediaPlayer` + `QVideoWidget`) for more reliable playback.
 - Last-frame extraction and video stitching require `ffmpeg` in `PATH`.
-- YouTube upload requires a valid OAuth client secret file at `client_secret.json` (written token stored in `youtube_token.json`).
+- YouTube upload requires `client_secret.json` (token saved to `youtube_token.json`).
 
-## Support this project
+## Support this project ☕
 
-If you find this useful, please consider donating:
+If this saves you hours, grab me a ☕.
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=000000)](https://www.buymeacoffee.com/dhookster)
+
+Also supported via:
 
 - PayPal: https://www.paypal.com/paypalme/dhookster
 - Crypto (SOL): `6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp`
+
+### Demo callout
+
+Use this line in demos/tutorials:
+
+> If this saves you hours, grab me a ☕.
 
 ## Build Windows binaries on GitHub
 
 This repository includes a GitHub Actions workflow at `.github/workflows/windows-build-release.yml`.
 
 - On push to `main`, it builds a Windows executable with PyInstaller and uploads a workflow artifact.
-- On tags that start with `v` (for example `v0.1.1`), it also uploads the same `.zip` to a GitHub Release.
+- On tags that start with `v` (for example `v1.0.1`), it also uploads the same `.zip` to a GitHub Release.
 
 To enable this in your fork/remote:
 
@@ -118,8 +103,8 @@ To enable this in your fork/remote:
 3. Create and push a version tag:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
-Then download `GrokVideoDesktopStudio-windows-x64.zip` from either Actions artifacts or the tagged Release.
+Then download `GrokVideoDesktopStudio-windows-x64.zip` from Actions artifacts or the tagged Release.
