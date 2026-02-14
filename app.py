@@ -2573,131 +2573,142 @@ class MainWindow(QMainWindow):
             self._append_log("ERROR: No frames provided for browser-side image paste.")
             return
 
-        def _upload_next(index: int) -> None:
-            if index >= len(frame_paths):
-                if callable(on_uploaded):
-                    on_uploaded()
-                return
+        frame_payload = [
+            {
+                "name": frame_path.name,
+                "base64": base64.b64encode(frame_path.read_bytes()).decode("ascii"),
+            }
+            for frame_path in frame_paths
+        ]
 
-            frame_path = frame_paths[index]
-            self._append_log(f"Starting browser-side image paste for frame {index + 1}/{len(frame_paths)}: {frame_path.name}")
-            frame_base64 = base64.b64encode(frame_path.read_bytes()).decode("ascii")
-            upload_script = r"""
-                (() => {
-                    const base64Data = __FRAME_BASE64__;
-                    const fileName = __FRAME_NAME__;
-                    const selectors = [
-                        "textarea[placeholder*='Type to imagine' i]",
-                        "input[placeholder*='Type to imagine' i]",
-                        "textarea[placeholder*='Type to customize this video' i]",
-                        "input[placeholder*='Type to customize this video' i]",
-                        "textarea[placeholder*='Type to customize video' i]",
-                        "input[placeholder*='Type to customize video' i]",
-                        "textarea[placeholder*='Customize video' i]",
-                        "input[placeholder*='Customize video' i]",
-                        "textarea[aria-label*='Make a video' i]",
-                        "input[aria-label*='Make a video' i]",
-                        "div.tiptap.ProseMirror[contenteditable='true']",
-                        "[contenteditable='true'][aria-label*='Type to imagine' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
-                        "[contenteditable='true'][aria-label*='Type to customize this video' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to customize this video' i]",
-                        "[contenteditable='true'][aria-label*='Type to customize video' i]",
-                        "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
-                        "[contenteditable='true'][aria-label*='Make a video' i]",
-                        "[contenteditable='true'][data-placeholder*='Customize video' i]"
-                    ];
-                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                    const setInputFiles = (input, files) => {
-                        try {
-                            const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files");
-                            if (descriptor && typeof descriptor.set === "function") {
-                                descriptor.set.call(input, files);
-                                return true;
-                            }
-                        } catch (_) {}
+        self._append_log(
+            f"Starting browser-side multi-image paste for {len(frame_paths)} frame(s): "
+            + ", ".join(path.name for path in frame_paths)
+        )
 
-                        try {
-                            Object.defineProperty(input, "files", { value: files, configurable: true });
+        upload_script = r"""
+            (() => {
+                const framePayload = __FRAME_PAYLOAD__;
+                const selectors = [
+                    "textarea[placeholder*='Type to imagine' i]",
+                    "input[placeholder*='Type to imagine' i]",
+                    "textarea[placeholder*='Type to customize this video' i]",
+                    "input[placeholder*='Type to customize this video' i]",
+                    "textarea[placeholder*='Type to customize video' i]",
+                    "input[placeholder*='Type to customize video' i]",
+                    "textarea[placeholder*='Customize video' i]",
+                    "input[placeholder*='Customize video' i]",
+                    "textarea[aria-label*='Make a video' i]",
+                    "input[aria-label*='Make a video' i]",
+                    "div.tiptap.ProseMirror[contenteditable='true']",
+                    "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
+                    "[contenteditable='true'][aria-label*='Type to customize this video' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to customize this video' i]",
+                    "[contenteditable='true'][aria-label*='Type to customize video' i]",
+                    "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
+                    "[contenteditable='true'][aria-label*='Make a video' i]",
+                    "[contenteditable='true'][data-placeholder*='Customize video' i]"
+                ];
+                const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                const setInputFiles = (input, files) => {
+                    try {
+                        const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files");
+                        if (descriptor && typeof descriptor.set === "function") {
+                            descriptor.set.call(input, files);
                             return true;
-                        } catch (_) {
-                            return false;
                         }
-                    };
+                    } catch (_) {}
 
-                    const dispatchFileEvents = (target, dt) => {
-                        try {
-                            target.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-                            target.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-                        } catch (_) {}
-
-                        ["dragenter", "dragover", "drop"].forEach((eventName) => {
-                            try {
-                                target.dispatchEvent(new DragEvent(eventName, { bubbles: true, cancelable: true, dataTransfer: dt }));
-                            } catch (_) {}
-                        });
-
-                        try {
-                            const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt });
-                            target.dispatchEvent(pasteEvent);
-                        } catch (_) {}
-                    };
-
-                    for (const selector of selectors) {
-                        const node = [...document.querySelectorAll(selector)].find((el) => isVisible(el));
-                        if (node) {
-                            node.focus();
-                            const binary = atob(base64Data);
-                            const bytes = new Uint8Array(binary.length);
-                            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-                            const file = new File([bytes], fileName, { type: "image/png" });
-
-                            const dt = new DataTransfer();
-                            dt.items.add(file);
-
-                            const queryBar = node.closest(".query-bar") || node.closest("form") || node.parentElement;
-                            const promptRoot = queryBar?.parentElement || node.parentElement;
-                            const scopedInputs = [
-                                ...(promptRoot ? promptRoot.querySelectorAll("input[type='file']") : []),
-                                ...(queryBar ? queryBar.querySelectorAll("input[type='file']") : []),
-                            ];
-                            const fileInputs = scopedInputs.length
-                                ? [...new Set(scopedInputs)]
-                                : [...document.querySelectorAll("input[type='file']")];
-
-                            let populatedInputs = 0;
-                            for (const input of fileInputs) {
-                                try {
-                                    if (!setInputFiles(input, dt.files)) continue;
-                                    dispatchFileEvents(input, dt);
-                                    populatedInputs += 1;
-                                } catch (_) {}
-                            }
-
-                            dispatchFileEvents(node, dt);
-                            if (queryBar && queryBar !== node) dispatchFileEvents(queryBar, dt);
-                            if (promptRoot && promptRoot !== queryBar && promptRoot !== node) dispatchFileEvents(promptRoot, dt);
-
-                            return {
-                                ok: populatedInputs > 0,
-                                fileInputs: fileInputs.length,
-                                populatedInputs,
-                                selector,
-                            };
-                        }
+                    try {
+                        Object.defineProperty(input, "files", { value: files, configurable: true });
+                        return true;
+                    } catch (_) {
+                        return false;
                     }
-                    return { ok: false, error: 'Prompt input not found for paste' };
-                })()
-            """
+                };
 
-            upload_script = upload_script.replace("__FRAME_BASE64__", repr(frame_base64)).replace("__FRAME_NAME__", repr(frame_path.name))
+                const dispatchFileEvents = (target, dt) => {
+                    try {
+                        target.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+                        target.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+                    } catch (_) {}
 
-            def after_focus(_result):
-                QTimer.singleShot(350, lambda: _upload_next(index + 1))
+                    ["dragenter", "dragover", "drop"].forEach((eventName) => {
+                        try {
+                            target.dispatchEvent(new DragEvent(eventName, { bubbles: true, cancelable: true, dataTransfer: dt }));
+                        } catch (_) {}
+                    });
 
-            self.browser.page().runJavaScript(upload_script, after_focus)
+                    try {
+                        const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt });
+                        target.dispatchEvent(pasteEvent);
+                    } catch (_) {}
+                };
 
-        _upload_next(0)
+                const dt = new DataTransfer();
+                for (const frame of framePayload) {
+                    const binary = atob(frame.base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+                    const file = new File([bytes], frame.name, { type: "image/png" });
+                    dt.items.add(file);
+                }
+
+                for (const selector of selectors) {
+                    const node = [...document.querySelectorAll(selector)].find((el) => isVisible(el));
+                    if (node) {
+                        node.focus();
+
+                        const queryBar = node.closest(".query-bar") || node.closest("form") || node.parentElement;
+                        const promptRoot = queryBar?.parentElement || node.parentElement;
+                        const scopedInputs = [
+                            ...(promptRoot ? promptRoot.querySelectorAll("input[type='file']") : []),
+                            ...(queryBar ? queryBar.querySelectorAll("input[type='file']") : []),
+                        ];
+                        const fileInputs = scopedInputs.length
+                            ? [...new Set(scopedInputs)]
+                            : [...document.querySelectorAll("input[type='file']")];
+
+                        let populatedInputs = 0;
+                        for (const input of fileInputs) {
+                            try {
+                                if (!setInputFiles(input, dt.files)) continue;
+                                dispatchFileEvents(input, dt);
+                                populatedInputs += 1;
+                            } catch (_) {}
+                        }
+
+                        dispatchFileEvents(node, dt);
+                        if (queryBar && queryBar !== node) dispatchFileEvents(queryBar, dt);
+                        if (promptRoot && promptRoot !== queryBar && promptRoot !== node) dispatchFileEvents(promptRoot, dt);
+
+                        return {
+                            ok: populatedInputs > 0,
+                            fileInputs: fileInputs.length,
+                            populatedInputs,
+                            uploadCount: dt.files.length,
+                            selector,
+                        };
+                    }
+                }
+                return { ok: false, error: 'Prompt input not found for paste', uploadCount: dt.files.length };
+            })()
+        """
+
+        upload_script = upload_script.replace("__FRAME_PAYLOAD__", repr(frame_payload))
+
+        def after_upload(result):
+            if isinstance(result, dict):
+                self._append_log(
+                    "Continue mode upload result: "
+                    f"ok={result.get('ok')} uploaded={result.get('uploadCount')} "
+                    f"inputs-populated={result.get('populatedInputs')}"
+                )
+            if callable(on_uploaded):
+                on_uploaded()
+
+        self.browser.page().runJavaScript(upload_script, after_upload)
 
     def _wait_for_continue_upload_reload(self) -> None:
         self.continue_from_frame_waiting_for_reload = True
