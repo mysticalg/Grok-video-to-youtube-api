@@ -1515,36 +1515,101 @@ class MainWindow(QMainWindow):
                     ];
 
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const normalize = (value) => (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+                    const buttonLabel = (el) => (el.getAttribute("aria-label") || el.textContent || "").trim();
+                    const makeVideoButton = [...document.querySelectorAll("button, [role='button']")]
+                        .find((el) => isVisible(el) && /make\s*video|generate|send/i.test(buttonLabel(el)));
+
                     const inputCandidates = [];
                     promptSelectors.forEach((selector) => {{
                         const matches = document.querySelectorAll(selector);
                         for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
                     }});
-                    const input = inputCandidates.find((el) => isVisible(el));
-                    if (!input) return {{ ok: false, error: "Prompt input not found" }};
+                    [
+                        "[role='textbox']",
+                        "textarea",
+                        "input[type='text']",
+                        "[contenteditable='true']",
+                    ].forEach((selector) => {{
+                        const matches = document.querySelectorAll(selector);
+                        for (let i = 0; i < matches.length; i += 1) inputCandidates.push(matches[i]);
+                    }});
 
-                    input.focus();
-                    if (input.isContentEditable) {{
-                        // Only populate the field; do not synthesize Enter/submit key events.
-                        const paragraph = document.createElement("p");
-                        paragraph.textContent = prompt;
-                        input.replaceChildren(paragraph);
-                        input.dispatchEvent(new Event("input", {{ bubbles: true }}));
-                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
-                    }} else {{
-                        const proto = Object.getPrototypeOf(input);
-                        const descriptor = proto ? Object.getOwnPropertyDescriptor(proto, "value") : null;
-                        const valueSetter = descriptor && descriptor.set;
-                        if (valueSetter) valueSetter.call(input, prompt);
-                        else input.value = prompt;
-                        input.dispatchEvent(new Event("input", {{ bubbles: true }}));
-                        input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                    const uniqueVisibleInputs = [...new Set(inputCandidates)].filter((el) => isVisible(el));
+                    const scoredInputs = uniqueVisibleInputs.map((el) => {{
+                        let distanceScore = 999999;
+                        if (makeVideoButton && typeof el.getBoundingClientRect === "function") {{
+                            const a = el.getBoundingClientRect();
+                            const b = makeVideoButton.getBoundingClientRect();
+                            const ax = a.left + a.width / 2;
+                            const ay = a.top + a.height / 2;
+                            const bx = b.left + b.width / 2;
+                            const by = b.top + b.height / 2;
+                            distanceScore = Math.hypot(ax - bx, ay - by);
+                        }}
+                        const placeholder = (el.getAttribute("placeholder") || el.getAttribute("aria-label") || el.getAttribute("data-placeholder") || "").toLowerCase();
+                        const promptHintBonus = /imagine|customize|video|prompt|make a video/.test(placeholder) ? -250 : 0;
+                        return {{ el, score: distanceScore + promptHintBonus }};
+                    }}).sort((a, b) => a.score - b.score);
+
+                    const setNodeText = (node, value) => {{
+                        if (!node) return false;
+                        try {{ node.focus(); }} catch (_) {{}}
+                        try {{ node.click(); }} catch (_) {{}}
+
+                        if (node.isContentEditable) {{
+                            try {{
+                                const range = document.createRange();
+                                range.selectNodeContents(node);
+                                const sel = window.getSelection();
+                                if (sel) {{
+                                    sel.removeAllRanges();
+                                    sel.addRange(range);
+                                }}
+                            }} catch (_) {{}}
+
+                            let inserted = false;
+                            try {{ inserted = document.execCommand("insertText", false, value); }} catch (_) {{}}
+                            if (!inserted) {{
+                                node.textContent = "";
+                                const paragraph = document.createElement("p");
+                                paragraph.textContent = value;
+                                node.replaceChildren(paragraph);
+                            }}
+
+                            try {{ node.dispatchEvent(new InputEvent("input", {{ bubbles: true, data: value, inputType: "insertText" }})); }} catch (_) {{ node.dispatchEvent(new Event("input", {{ bubbles: true }})); }}
+                            node.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                        }} else {{
+                            const proto = Object.getPrototypeOf(node);
+                            const descriptor = proto ? Object.getOwnPropertyDescriptor(proto, "value") : null;
+                            const valueSetter = descriptor && descriptor.set;
+                            if (valueSetter) valueSetter.call(node, value);
+                            else node.value = value;
+                            try {{ node.dispatchEvent(new InputEvent("input", {{ bubbles: true, data: value, inputType: "insertText" }})); }} catch (_) {{ node.dispatchEvent(new Event("input", {{ bubbles: true }})); }}
+                            node.dispatchEvent(new Event("change", {{ bubbles: true }}));
+                        }}
+
+                        const typed = node.isContentEditable ? (node.innerText || node.textContent || "") : (node.value || "");
+                        return !!normalize(typed);
+                    }};
+
+                    let input = scoredInputs.length ? scoredInputs[0].el : null;
+                    if (!input && makeVideoButton) {{
+                        input = makeVideoButton.closest("form, .query-bar, [class*='query' i], [class*='composer' i], [class*='prompt' i]")?.querySelector("textarea, input, [role='textbox'], [contenteditable='true']") || null;
+                    }}
+                    if (!input) return {{ ok: false, error: "Prompt input not found", candidateCount: uniqueVisibleInputs.length }};
+
+                    let filled = setNodeText(input, prompt);
+                    if (!filled && document.activeElement && document.activeElement !== input) {{
+                        filled = setNodeText(document.activeElement, prompt);
+                        if (filled) input = document.activeElement;
                     }}
 
-                    const typedValue = input.isContentEditable ? (input.textContent || "") : (input.value || "");
-                    if (!typedValue.trim()) return {{ ok: false, error: "Prompt field did not accept text" }};
+                    const typedValue = input && input.isContentEditable ? (input.innerText || input.textContent || "") : (input?.value || "");
+                    const matchesExpected = normalize(typedValue).includes(normalize(prompt));
+                    if (!filled && !matchesExpected) return {{ ok: false, error: "Prompt field did not accept text", candidateCount: uniqueVisibleInputs.length }};
 
-                    return {{ ok: true, filledLength: typedValue.length }};
+                    return {{ ok: true, filledLength: typedValue.length, matchesExpected, candidateCount: uniqueVisibleInputs.length }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err) }};
                 }}
