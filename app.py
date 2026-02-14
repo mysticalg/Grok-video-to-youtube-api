@@ -48,6 +48,8 @@ API_BASE_URL = os.getenv("XAI_API_BASE", "https://api.x.ai/v1")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/dhookster/Grok-video-to-youtube-api"
+GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases"
+GITHUB_ACTIONS_RUNS_URL = f"{GITHUB_REPO_URL}/actions/workflows/windows-build-release.yml"
 BUY_ME_A_COFFEE_URL = "https://www.buymeacoffee.com/dhookster"
 PAYPAL_DONATION_URL = "https://www.paypal.com/paypalme/dhookster"
 SOL_DONATION_ADDRESS = "6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp"
@@ -581,6 +583,14 @@ class MainWindow(QMainWindow):
         github_action.triggered.connect(self.open_github_page)
         help_menu.addAction(github_action)
 
+        releases_action = QAction("Download Windows Binary", self)
+        releases_action.triggered.connect(self.open_github_releases_page)
+        help_menu.addAction(releases_action)
+
+        actions_action = QAction("Windows Build Artifacts", self)
+        actions_action.triggered.connect(self.open_github_actions_runs_page)
+        help_menu.addAction(actions_action)
+
     def show_app_info(self) -> None:
         QMessageBox.information(
             self,
@@ -589,6 +599,9 @@ class MainWindow(QMainWindow):
             "Version: 1.0.0\n"
             "Authors: Grok Video Desktop Studio contributors\n"
             "Desktop workflow: PyQt + embedded Grok browser + YouTube uploader\n\n"
+            "Downloads:\n"
+            f"- Windows binary releases: {GITHUB_RELEASES_URL}\n"
+            f"- Latest workflow artifacts: {GITHUB_ACTIONS_RUNS_URL}\n\n"
             "If this saves you hours, grab me a ☕.\n\n"
             "Support links:\n"
             f"- Buy Me a Coffee: {BUY_ME_A_COFFEE_URL}\n"
@@ -598,6 +611,12 @@ class MainWindow(QMainWindow):
 
     def open_github_page(self) -> None:
         QDesktopServices.openUrl(QUrl(GITHUB_REPO_URL))
+
+    def open_github_releases_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(GITHUB_RELEASES_URL))
+
+    def open_github_actions_runs_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(GITHUB_ACTIONS_RUNS_URL))
 
     def open_buy_me_a_coffee(self) -> None:
         QDesktopServices.openUrl(QUrl(BUY_ME_A_COFFEE_URL))
