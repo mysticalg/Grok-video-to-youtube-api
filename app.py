@@ -1180,10 +1180,19 @@ class MainWindow(QMainWindow):
                         return true;
                     };
                     const textOf = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                    const normalizedText = (el) => textOf(el).toLowerCase();
+                    const isImageOnlyOption = (el) => {
+                        const txt = normalizedText(el);
+                        if (!txt) return false;
+                        if (txt === "image" || txt === "images") return true;
+                        if (/generate multiple images/.test(txt)) return true;
+                        if (/\bimage\b/.test(txt) && !/\bvideo\b/.test(txt)) return true;
+                        return false;
+                    };
                     const hasImageSelectionMarker = () => {
                         const selectedEls = [...document.querySelectorAll("[aria-selected='true'], [aria-pressed='true'], [data-state='checked'], [data-selected='true']")]
                             .filter((el) => isVisible(el));
-                        return selectedEls.some((el) => /(^|\s)image(\s|$)/i.test(textOf(el)));
+                        return selectedEls.some((el) => isImageOnlyOption(el));
                     };
 
                     const modelTriggerCandidates = [
@@ -1215,8 +1224,7 @@ class MainWindow(QMainWindow):
                         .filter((el, idx, arr) => arr.indexOf(el) === idx && isVisible(el));
 
                     const imageItem = menuItems.find((el) => {
-                        const txt = textOf(el);
-                        return /(^|\s)image(\s|$)/i.test(txt) || /generate multiple images/i.test(txt);
+                        return isImageOnlyOption(el);
                     }) || null;
 
                     const imageClicked = imageItem ? emulateClick(imageItem) : false;
