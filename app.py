@@ -331,6 +331,7 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_current_source_video = ""
         self.continue_from_frame_seed_image_path: Path | None = None
         self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_upload_token = 0
         self.continue_from_frame_reload_timeout_timer = QTimer(self)
         self.continue_from_frame_reload_timeout_timer.setSingleShot(True)
         self.continue_from_frame_reload_timeout_timer.timeout.connect(self._on_continue_reload_timeout)
@@ -688,12 +689,10 @@ class MainWindow(QMainWindow):
             self.video_playback_hack_timer.start()
             self._ensure_browser_video_playback()
             if self.continue_from_frame_waiting_for_reload and self.continue_from_frame_active:
-                self.continue_from_frame_waiting_for_reload = False
-                self.continue_from_frame_reload_timeout_timer.stop()
-                self._append_log(
-                    "Continue-from-last-frame: detected page reload after image upload. Proceeding with prompt entry."
+                self._resume_continue_after_upload(
+                    "Continue-from-last-frame: detected page reload after image upload. Proceeding with prompt entry.",
+                    delay_ms=700,
                 )
-                QTimer.singleShot(700, lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1))
 
     def _retry_continue_after_small_download(self, variant: int) -> None:
         source_video = self.continue_from_frame_current_source_video
@@ -2396,6 +2395,7 @@ class MainWindow(QMainWindow):
         self.continue_from_frame_current_source_video = ""
         self.continue_from_frame_seed_image_path = None
         self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_upload_token = 0
 
         if self.worker and self.worker.isRunning():
             self.worker.request_stop()
@@ -2635,22 +2635,41 @@ class MainWindow(QMainWindow):
 
         self.browser.page().runJavaScript(upload_script, after_focus)
 
+    def _resume_continue_after_upload(self, message: str, delay_ms: int = 0, expected_token: int | None = None) -> None:
+        if not self.continue_from_frame_active:
+            return
+        if expected_token is not None and expected_token != self.continue_from_frame_upload_token:
+            return
+        if not self.continue_from_frame_waiting_for_reload:
+            return
+
+        self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_upload_token = 0
+        self.continue_from_frame_reload_timeout_timer.stop()
+        self._append_log(message)
+        QTimer.singleShot(delay_ms, lambda: self._start_manual_browser_generation(self.continue_from_frame_prompt, 1))
+
     def _wait_for_continue_upload_reload(self) -> None:
+        self.continue_from_frame_upload_token += 1
+        token = self.continue_from_frame_upload_token
         self.continue_from_frame_waiting_for_reload = True
         self.continue_from_frame_reload_timeout_timer.start(10000)
         self._append_log(
-            "Continue-from-last-frame: image pasted. Grok should auto-reload after upload; "
-            "waiting for the new page before entering the continuation prompt..."
+            "Continue-from-last-frame: image pasted. Waiting briefly for Grok UI update/reload before continuing."
+        )
+
+        QTimer.singleShot(
+            1800,
+            lambda: self._resume_continue_after_upload(
+                "Continue-from-last-frame: continuing prompt submission without waiting for full page reload.",
+                expected_token=token,
+            ),
         )
 
     def _on_continue_reload_timeout(self) -> None:
-        if not self.continue_from_frame_waiting_for_reload or not self.continue_from_frame_active:
-            return
-        self.continue_from_frame_waiting_for_reload = False
-        self._append_log(
+        self._resume_continue_after_upload(
             "Timed out waiting for upload-triggered reload; continuing with prompt submission."
         )
-        self._start_manual_browser_generation(self.continue_from_frame_prompt, 1)
 
     def continue_from_last_frame(self) -> None:
         source = self.prompt_source.currentData()
@@ -2670,6 +2689,7 @@ class MainWindow(QMainWindow):
 
         self.continue_from_frame_active = True
         self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_upload_token = 0
         self.continue_from_frame_reload_timeout_timer.stop()
         self.continue_from_frame_target_count = self.count.value()
         self.continue_from_frame_completed = 0
@@ -2705,6 +2725,7 @@ class MainWindow(QMainWindow):
 
         self.continue_from_frame_active = True
         self.continue_from_frame_waiting_for_reload = False
+        self.continue_from_frame_upload_token = 0
         self.continue_from_frame_reload_timeout_timer.stop()
         self.continue_from_frame_target_count = self.count.value()
         self.continue_from_frame_completed = 0
