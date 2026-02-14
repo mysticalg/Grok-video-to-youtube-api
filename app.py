@@ -1736,6 +1736,23 @@ class MainWindow(QMainWindow):
                         const shell = btn.closest("form, .query-bar, [class*='query' i], [class*='composer' i], [class*='prompt' i]");
                         if (shell) fallbackTexts.push((shell.innerText || shell.textContent || ""));
                     }}
+                    // Some Grok variants render the pending prompt in a nearby message bubble instead
+                    // of a traditional input/composer node. Include visible bubbles as fallback text.
+                    const bubbleSelectors = [
+                        "article",
+                        "[data-testid*='message' i]",
+                        "[class*='message' i]",
+                        "[class*='bubble' i]"
+                    ];
+                    for (const selector of bubbleSelectors) {{
+                        const nodes = [...document.querySelectorAll(selector)]
+                            .filter((el) => isVisible(el))
+                            .slice(-8);
+                        for (const node of nodes) {{
+                            const text = (node.innerText || node.textContent || "").trim();
+                            if (text && text.length >= 20) fallbackTexts.push(text);
+                        }}
+                    }}
                     if (document.activeElement) {{
                         const ae = document.activeElement;
                         const aeText = ae.isContentEditable ? (ae.innerText || ae.textContent || "") : (ae.value || ae.textContent || "");
@@ -2122,11 +2139,13 @@ class MainWindow(QMainWindow):
 
         prompt_fill_attempt_count = 0
         prompt_fill_seen_success = False
+        last_prompt_fill_result = None
         max_prompt_fill_attempts = 3
 
         def after_submit(result):
-            nonlocal prompt_fill_attempt_count, prompt_fill_seen_success
+            nonlocal prompt_fill_attempt_count, prompt_fill_seen_success, last_prompt_fill_result
             prompt_fill_attempt_count += 1
+            last_prompt_fill_result = result if isinstance(result, dict) else None
 
             fill_ok = isinstance(result, dict) and bool(result.get("ok"))
             if fill_ok:
@@ -2160,17 +2179,23 @@ class MainWindow(QMainWindow):
                     has_any_text = isinstance(verify_result, dict) and bool(verify_result.get("hasAnyText"))
                     best_score = float(verify_result.get("bestScore") or 0.0) if isinstance(verify_result, dict) else 0.0
                     preview = (verify_result.get("valuePreview") or "") if isinstance(verify_result, dict) else ""
-                    can_proceed = prompt_fill_seen_success or has_any_text or (best_score >= 0.30)
+                    candidate_count = int(last_prompt_fill_result.get("candidateCount") or 0) if isinstance(last_prompt_fill_result, dict) else 0
+                    can_proceed = (
+                        prompt_fill_seen_success
+                        or has_any_text
+                        or (best_score >= 0.30)
+                        or (candidate_count > 0)
+                    )
                     if can_proceed:
                         self._append_log(
                             f"WARNING: Continue-mode prompt text could not be strictly confirmed for variant {variant} "
-                            f"after {max_prompt_fill_attempts} attempts (score={best_score:.2f}, fill_ok_seen={prompt_fill_seen_success}); "
+                            f"after {max_prompt_fill_attempts} attempts (score={best_score:.2f}, fill_ok_seen={prompt_fill_seen_success}, candidates={candidate_count}); "
                             f"proceeding with submit. Preview={preview!r}"
                         )
                     else:
                         self._append_log(
                             f"ERROR: Continue-mode prompt text could not be confirmed for variant {variant} after "
-                            f"{max_prompt_fill_attempts} attempts (score={best_score:.2f}, fill_ok_seen={prompt_fill_seen_success}); "
+                            f"{max_prompt_fill_attempts} attempts (score={best_score:.2f}, fill_ok_seen={prompt_fill_seen_success}, candidates={candidate_count}); "
                             "stopping to avoid submitting the wrong prompt."
                         )
                         self.continue_from_frame_active = False
