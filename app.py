@@ -47,6 +47,10 @@ MIN_VALID_VIDEO_BYTES = 1 * 1024 * 1024
 API_BASE_URL = os.getenv("XAI_API_BASE", "https://api.x.ai/v1")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
+GITHUB_REPO_URL = "https://github.com/dhookster/Grok-video-to-youtube-api"
+BUY_ME_A_COFFEE_URL = "https://www.buymeacoffee.com/dhookster"
+PAYPAL_DONATION_URL = "https://www.paypal.com/paypalme/dhookster"
+SOL_DONATION_ADDRESS = "6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -414,6 +418,15 @@ class MainWindow(QMainWindow):
         self.upload_youtube_btn.clicked.connect(self.upload_selected_to_youtube)
         actions_layout.addWidget(self.upload_youtube_btn, 4, 0, 1, 2)
 
+        self.buy_coffee_btn = QPushButton("☕ Buy Me a Coffee")
+        self.buy_coffee_btn.setToolTip("If this saves you hours, grab me a ☕")
+        self.buy_coffee_btn.setStyleSheet(
+            "font-size: 15px; font-weight: 700; padding: 10px;"
+            "background-color: #ffdd00; color: #222; border-radius: 8px;"
+        )
+        self.buy_coffee_btn.clicked.connect(self.open_buy_me_a_coffee)
+        actions_layout.addWidget(self.buy_coffee_btn, 5, 0, 1, 2)
+
         left_layout.addWidget(actions_group)
 
         left_layout.addWidget(QLabel("Generated Videos"))
@@ -575,14 +588,19 @@ class MainWindow(QMainWindow):
             "Grok Video Desktop Studio\n\n"
             "Version: 1.0.0\n"
             "Authors: Grok Video Desktop Studio contributors\n"
-            "Creation Date: 2025-01-01\n\n"
-            "Donation links:\n"
-            "- https://github.com/sponsors\n"
-            "- https://www.buymeacoffee.com",
+            "Desktop workflow: PyQt + embedded Grok browser + YouTube uploader\n\n"
+            "If this saves you hours, grab me a ☕.\n\n"
+            "Support links:\n"
+            f"- Buy Me a Coffee: {BUY_ME_A_COFFEE_URL}\n"
+            f"- PayPal: {PAYPAL_DONATION_URL}\n"
+            f"- Crypto (SOL): {SOL_DONATION_ADDRESS}",
         )
 
     def open_github_page(self) -> None:
-        QDesktopServices.openUrl(QUrl("https://github.com"))
+        QDesktopServices.openUrl(QUrl(GITHUB_REPO_URL))
+
+    def open_buy_me_a_coffee(self) -> None:
+        QDesktopServices.openUrl(QUrl(BUY_ME_A_COFFEE_URL))
 
     def show_model_api_settings(self) -> None:
         self.model_api_settings_dialog.show()
