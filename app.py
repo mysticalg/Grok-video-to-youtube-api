@@ -1901,6 +1901,10 @@ class MainWindow(QMainWindow):
 
                 self._append_log(f"Options window closed for variant {variant}; submitting after {action_delay_ms}ms delay.")
 
+                if self.continue_from_frame_active:
+                    QTimer.singleShot(action_delay_ms, _run_continue_mode_submit)
+                    return
+
                 def after_delayed_submit(submit_result):
                     if not isinstance(submit_result, dict) or not submit_result.get("ok"):
                         error_detail = submit_result.get("error") if isinstance(submit_result, dict) else submit_result
@@ -2013,13 +2017,10 @@ class MainWindow(QMainWindow):
                             f"Prompt fill verification did not confirm content for variant {variant}: {verify_error!r}. "
                             "Continuing with option selection and forced submit anyway."
                         )
-                if self.continue_from_frame_active:
-                    _run_continue_mode_submit()
-                else:
-                    QTimer.singleShot(
-                        action_delay_ms,
-                        lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open),
-                    )
+                QTimer.singleShot(
+                    action_delay_ms,
+                    lambda: self.browser.page().runJavaScript(open_options_script, _continue_after_options_open),
+                )
 
             if fill_ok:
                 _after_verify_prompt({"ok": True})
