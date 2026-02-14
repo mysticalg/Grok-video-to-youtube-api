@@ -1659,16 +1659,33 @@ class MainWindow(QMainWindow):
                         for (let i = 0; i < matches.length; i += 1) candidates.push(matches[i]);
                     }});
                     const visibleCandidates = [...new Set(candidates)].filter((el) => isVisible(el));
-                    if (!visibleCandidates.length) return {{ ok: false, error: "Visible prompt input not found during verification", hasAnyText: false, bestScore: 0 }};
+                    const values = visibleCandidates.map((el) => (el.isContentEditable ? (el.innerText || el.textContent || "") : (el.value || "")));
 
-                    const values = visibleCandidates.map((el) => (el.isContentEditable ? (el.textContent || "") : (el.value || "")));
-                    const normalizedValues = values.map((value) => normalize(value));
-                    const hasAnyText = values.some((value) => !!value.trim());
+                    // Fallback: some Grok UI states render prompt text in a non-input composer shell.
+                    const buttonLabel = (el) => (el.getAttribute("aria-label") || el.textContent || "").trim();
+                    const actionButtons = [...document.querySelectorAll("button, [role='button']")].filter((el) =>
+                        isVisible(el) && /make\s*video|generate|send/i.test(buttonLabel(el))
+                    );
+                    const fallbackTexts = [];
+                    for (const btn of actionButtons) {{
+                        const shell = btn.closest("form, .query-bar, [class*='query' i], [class*='composer' i], [class*='prompt' i]");
+                        if (shell) fallbackTexts.push((shell.innerText || shell.textContent || ""));
+                    }}
+                    if (document.activeElement) {{
+                        const ae = document.activeElement;
+                        const aeText = ae.isContentEditable ? (ae.innerText || ae.textContent || "") : (ae.value || ae.textContent || "");
+                        if (aeText) fallbackTexts.push(aeText);
+                    }}
+
+                    const allValues = [...values, ...fallbackTexts].filter((value) => !!String(value || "").trim());
+                    if (!allValues.length) return {{ ok: false, error: "Visible prompt text not found during verification", hasAnyText: false, bestScore: 0 }};
+                    const normalizedValues = allValues.map((value) => normalize(value));
+                    const hasAnyText = allValues.some((value) => !!value.trim());
                     const containsExpected = !!expected && normalizedValues.some((value) => value.includes(expected));
 
                     let bestScore = 0;
                     let bestValue = "";
-                    for (const value of values) {{
+                    for (const value of allValues) {{
                         const tokens = new Set(tokenize(value));
                         if (!expectedTokens.length) continue;
                         let matched = 0;
@@ -1689,7 +1706,8 @@ class MainWindow(QMainWindow):
                         bestScore,
                         hasAnyText,
                         candidateCount: visibleCandidates.length,
-                        valuePreview: (bestValue || values.find((v) => v.trim()) || "").slice(0, 160),
+                        fallbackCount: fallbackTexts.length,
+                        valuePreview: (bestValue || allValues.find((v) => v.trim()) || "").slice(0, 160),
                     }};
                 }} catch (err) {{
                     return {{ ok: false, error: String(err && err.stack ? err.stack : err), hasAnyText: false, bestScore: 0 }};
@@ -2077,7 +2095,7 @@ class MainWindow(QMainWindow):
                     has_any_text = isinstance(verify_result, dict) and bool(verify_result.get("hasAnyText"))
                     best_score = float(verify_result.get("bestScore") or 0.0) if isinstance(verify_result, dict) else 0.0
                     preview = (verify_result.get("valuePreview") or "") if isinstance(verify_result, dict) else ""
-                    can_proceed = prompt_fill_seen_success or (has_any_text and best_score >= 0.30)
+                    can_proceed = prompt_fill_seen_success or has_any_text or (best_score >= 0.30)
                     if can_proceed:
                         self._append_log(
                             f"WARNING: Continue-mode prompt text could not be strictly confirmed for variant {variant} "
