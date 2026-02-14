@@ -1627,8 +1627,7 @@ class MainWindow(QMainWindow):
                 self.video_picker.addItem(f"Manual Browser Video {variant} (web)")
                 self.video_picker.setCurrentIndex(self.video_picker.count() - 1)
                 self._append_log(f"Saved: {video_path}")
-                self._append_log("Download complete; returning embedded browser to grok.com/imagine.")
-                QTimer.singleShot(0, self.show_browser_page)
+                self._append_log("Download complete; keeping embedded browser on the current page.")
                 self.pending_manual_variant_for_download = None
                 self.manual_download_click_sent = False
                 self.manual_download_in_progress = False
@@ -1985,7 +1984,13 @@ class MainWindow(QMainWindow):
         self._start_continue_iteration()
 
     def show_browser_page(self) -> None:
-        self.browser.setUrl(QUrl("https://grok.com/imagine"))
+        current_url = self.browser.url().toString().strip().lower()
+        imagine_url = "https://grok.com/imagine"
+        if current_url.startswith(imagine_url):
+            self._append_log("Embedded browser is already on grok.com/imagine; skipping reload.")
+            return
+
+        self.browser.setUrl(QUrl(imagine_url))
         self._append_log("Navigated embedded browser to grok.com/imagine.")
 
     def stitch_all_videos(self) -> None:
