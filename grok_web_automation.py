@@ -124,6 +124,20 @@ def _resolve_submit_locator(page, preferred_selector: str, timeout_s: int):
     ) from last_error
 
 
+def _click_submit(locator, timeout_s: int) -> None:
+    locator.wait_for(state="visible", timeout=max(2000, timeout_s * 1000))
+
+    # Grok keeps the submit button disabled until prompt input is accepted.
+    locator.page.wait_for_function(
+        "el => !!el && !el.disabled",
+        arg=locator.element_handle(),
+        timeout=max(3000, timeout_s * 1000),
+    )
+
+    locator.scroll_into_view_if_needed()
+    locator.click()
+
+
 def manual_login_and_save(storage_state_path: Path, timeout_s: int = 300) -> None:
     sync_playwright = _require_playwright()
     selectors = _get_selectors()
@@ -164,7 +178,7 @@ def generate_video_via_web(
         _fill_prompt(prompt_locator, prompt)
 
         submit_locator, used_submit_selector = _resolve_submit_locator(page, selectors["submit"], timeout_s=timeout_s)
-        submit_locator.click()
+        _click_submit(submit_locator, timeout_s=timeout_s)
 
         page.wait_for_selector(selectors["video"], timeout=timeout_s * 1000)
         video_el = page.locator(selectors["video"]).first
