@@ -1249,6 +1249,24 @@ class MainWindow(QMainWindow):
                 }};
 
                 if (phase === "pick") {{
+                    const videoPromptSelectors = [
+                        "textarea[placeholder*='Type to customize video' i]",
+                        "input[placeholder*='Type to customize video' i]",
+                        "textarea[placeholder*='Type to imagine' i]",
+                        "input[placeholder*='Type to imagine' i]",
+                        "div.tiptap.ProseMirror[contenteditable='true']",
+                        "[contenteditable='true'][aria-label*='Type to customize video' i]",
+                        "[contenteditable='true'][aria-label*='Type to imagine' i]",
+                        "[contenteditable='true'][data-placeholder*='Type to customize video' i]",
+                        "[contenteditable='true'][data-placeholder*='Type to imagine' i]",
+                    ];
+                    const videoPromptInput = videoPromptSelectors.map((sel) => document.querySelector(sel)).find(Boolean);
+                    const makeVideoButtonVisible = [...document.querySelectorAll("button")]
+                        .some((btn) => isVisible(btn) && !btn.disabled && /make\\s+video/i.test((btn.getAttribute("aria-label") || btn.textContent || "").trim()));
+                    if (videoPromptInput && makeVideoButtonVisible) {{
+                        return {{ ok: true, status: "image-already-picked" }};
+                    }}
+
                     const generatedImages = [...document.querySelectorAll("img[alt='Generated image']")]
                         .filter((img) => isVisible(img));
                     if (!generatedImages.length) return {{ ok: false, status: "waiting-for-generated-image" }};
@@ -1325,15 +1343,20 @@ class MainWindow(QMainWindow):
 
             if isinstance(result, dict) and result.get("ok"):
                 status = result.get("status") or "ok"
-                if status == "generated-image-clicked":
+                if status in ("generated-image-clicked", "image-already-picked"):
                     if not self.manual_image_pick_clicked:
-                        self._append_log(
-                            f"Variant {current_variant}: clicked first generated image tile; preparing video prompt + submit."
-                        )
+                        if status == "image-already-picked":
+                            self._append_log(
+                                f"Variant {current_variant}: detected video composer already active; skipping image-pick retry stage."
+                            )
+                        else:
+                            self._append_log(
+                                f"Variant {current_variant}: clicked first generated image tile; preparing video prompt + submit."
+                            )
                     self.manual_image_pick_clicked = True
                     self.manual_image_pick_retry_count = 0
                     self.manual_image_submit_retry_count = 0
-                    QTimer.singleShot(1000, self._poll_for_manual_image)
+                    QTimer.singleShot(300, self._poll_for_manual_image)
                     return
 
                 if status in ("video-submit-clicked", "video-submit-already-clicked"):
@@ -1932,7 +1955,7 @@ class MainWindow(QMainWindow):
 
                         const buttons = [...document.querySelectorAll("button, [role='button']")].filter((el) => isVisible(el));
                         const matchers = [
-                            /make\s*video/i,
+                            /make\\s*video/i,
                             /generate/i,
                             /submit/i,
                         ];
