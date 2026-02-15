@@ -718,6 +718,8 @@ class MainWindow(QMainWindow):
 
         self.stitch_gpu_checkbox = QCheckBox("Use GPU encoding for stitching (NVENC)")
         self.stitch_gpu_checkbox.setToolTip("Use NVIDIA NVENC encoder when available to reduce CPU load.")
+        self.stitch_gpu_checkbox.setChecked(True)
+        self.stitch_gpu_checkbox.toggled.connect(lambda _: self._sync_video_options_label())
         actions_layout.addWidget(self.stitch_gpu_checkbox, 7, 0, 1, 2)
 
         self.video_options_dropdown = QComboBox()
@@ -727,6 +729,8 @@ class MainWindow(QMainWindow):
         self.video_options_dropdown.addItem("Crossfade 0.5s", 0.5)
         self.video_options_dropdown.addItem("Crossfade 0.8s", 0.8)
         self.video_options_dropdown.addItem("Crossfade 1.0s", 1.0)
+        self.video_options_dropdown.addItem("GPU Encoding: On", "gpu_on")
+        self.video_options_dropdown.addItem("GPU Encoding: Off", "gpu_off")
         self.video_options_dropdown.addItem("Open advanced video settings...", None)
         self.video_options_dropdown.setCurrentIndex(0)
         self.video_options_dropdown.setToolTip("Video options including stitch crossfade duration.")
@@ -945,6 +949,7 @@ class MainWindow(QMainWindow):
 
         self._build_menu_bar()
         self._toggle_prompt_source_fields()
+        self._sync_video_options_label()
 
     def _build_model_api_settings_dialog(self) -> None:
         self.model_api_settings_dialog = QDialog(self)
@@ -1152,6 +1157,15 @@ class MainWindow(QMainWindow):
             self.video_options_dropdown.blockSignals(False)
             return
 
+        if option_value == "gpu_on":
+            self.stitch_gpu_checkbox.setChecked(True)
+            self._sync_video_options_label()
+            return
+        if option_value == "gpu_off":
+            self.stitch_gpu_checkbox.setChecked(False)
+            self._sync_video_options_label()
+            return
+
         try:
             self.crossfade_duration.setValue(float(option_value))
             self._sync_video_options_label()
@@ -1160,7 +1174,8 @@ class MainWindow(QMainWindow):
 
     def _sync_video_options_label(self) -> None:
         duration = self.crossfade_duration.value()
-        label = f"Video Options: Crossfade {duration:.1f}s"
+        gpu_label = "GPU on" if self.stitch_gpu_checkbox.isChecked() else "GPU off"
+        label = f"Video Options: Crossfade {duration:.1f}s | {gpu_label}"
         self.video_options_dropdown.blockSignals(True)
         self.video_options_dropdown.setItemText(0, label)
         self.video_options_dropdown.setCurrentIndex(0)
@@ -1276,6 +1291,7 @@ class MainWindow(QMainWindow):
                 pass
 
         self._toggle_prompt_source_fields()
+        self._sync_video_options_label()
 
     def _save_preferences_to_path(self, file_path: Path, *, show_feedback: bool = False) -> bool:
         try:
