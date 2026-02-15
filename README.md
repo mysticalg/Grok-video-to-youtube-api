@@ -77,7 +77,7 @@ python app.py
 - `OPENAI_OAUTH_ISSUER` (default: `https://auth.openai.com`)
 - `OPENAI_CODEX_CLIENT_ID` (default: `app_EMoamEEZ73f0CkXaXp7hrann`)
 - `OPENAI_OAUTH_CALLBACK_PORT` (default: `1455`)
-- `OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT` (optional override for id_token -> API token exchange endpoint; app will try configured endpoint plus built-in fallbacks, including OAuth token-exchange form payloads on `/oauth/token`)
+- `OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT` (optional override for id_token -> API token exchange endpoint; app also tries OIDC-discovered `token_endpoint` plus built-in fallbacks, including OAuth token-exchange form payloads on `/oauth/token`)
 - `OPENAI_MIN_REQUEST_INTERVAL_SECONDS` (default: `0.35`; staggers OpenAI requests and keeps them serialized one-at-a-time)
 
 ### Embedded browser/runtime

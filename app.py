@@ -110,6 +110,27 @@ def _normalize_http_url(url: str) -> str:
 
 _OPENAI_SERIAL_REQUEST_LOCK = threading.Lock()
 _OPENAI_LAST_REQUEST_TS = 0.0
+_OPENAI_DISCOVERED_TOKEN_ENDPOINT = ""
+
+
+def _resolve_openai_token_endpoint_from_oidc() -> str:
+    global _OPENAI_DISCOVERED_TOKEN_ENDPOINT
+    if _OPENAI_DISCOVERED_TOKEN_ENDPOINT:
+        return _OPENAI_DISCOVERED_TOKEN_ENDPOINT
+
+    issuer_base = OPENAI_OAUTH_ISSUER.rstrip("/")
+    discovery_url = f"{issuer_base}/.well-known/openid-configuration"
+    try:
+        response = requests.get(discovery_url, timeout=10)
+        if not response.ok:
+            return ""
+        payload = response.json()
+        endpoint = str(payload.get("token_endpoint", "")).strip()
+        if endpoint:
+            _OPENAI_DISCOVERED_TOKEN_ENDPOINT = endpoint
+        return _OPENAI_DISCOVERED_TOKEN_ENDPOINT
+    except Exception:
+        return ""
 
 
 def _openai_post_serialized(url: str, **kwargs) -> requests.Response:
@@ -1920,35 +1941,63 @@ class MainWindow(QMainWindow):
         oauth_token = f"{OPENAI_OAUTH_ISSUER.rstrip('/')}/oauth/token"
         api_fallback = f"{OPENAI_API_BASE.rstrip('/')}/auth/id_token/exchange"
 
+        discovered_oauth_token = _normalize_http_url(_resolve_openai_token_endpoint_from_oidc())
+
         endpoints: list[str] = []
-        for candidate in (configured, oauth_direct, oauth_token, api_fallback):
+        for candidate in (configured, discovered_oauth_token, oauth_direct, oauth_token, api_fallback):
             candidate = candidate.strip()
             if candidate and candidate not in endpoints:
                 endpoints.append(candidate)
 
         errors: list[str] = []
 
-        def _attempt(endpoint: str, *, as_form: bool) -> requests.Response:
-            if as_form:
-                data = {
-                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-                    "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
-                    "subject_token": id_token,
-                    "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-                    "client_id": OPENAI_CODEX_CLIENT_ID,
-                }
-                return _openai_post_serialized(endpoint, data=data, timeout=60)
-            return _openai_post_serialized(endpoint, json={"id_token": id_token}, timeout=60)
+        def _attempt_variants(endpoint: str) -> list[tuple[str, dict]]:
+            is_oauth_token_endpoint = endpoint.rstrip("/").endswith("/oauth/token")
+            if not is_oauth_token_endpoint:
+                return [("json", {"json": {"id_token": id_token}})]
+
+            # Try multiple RFC-8693-style variants; providers differ on accepted fields.
+            return [
+                (
+                    "form-basic",
+                    {
+                        "data": {
+                            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                            "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                            "subject_token": id_token,
+                            "client_id": OPENAI_CODEX_CLIENT_ID,
+                        }
+                    },
+                ),
+                (
+                    "form-jwt-type",
+                    {
+                        "data": {
+                            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+                            "subject_token": id_token,
+                            "client_id": OPENAI_CODEX_CLIENT_ID,
+                        }
+                    },
+                ),
+                (
+                    "form-with-audience",
+                    {
+                        "data": {
+                            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                            "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                            "subject_token": id_token,
+                            "client_id": OPENAI_CODEX_CLIENT_ID,
+                            "audience": "https://api.openai.com/v1",
+                        }
+                    },
+                ),
+                ("json", {"json": {"id_token": id_token}}),
+            ]
 
         for endpoint in endpoints:
-            is_oauth_token_endpoint = endpoint.rstrip("/").endswith("/oauth/token")
-            attempts = [False]
-            if is_oauth_token_endpoint:
-                attempts = [True, False]
-
-            for as_form in attempts:
-                response = _attempt(endpoint, as_form=as_form)
-                attempt_label = "form" if as_form else "json"
+            for attempt_label, kwargs in _attempt_variants(endpoint):
+                response = _openai_post_serialized(endpoint, timeout=60, **kwargs)
                 if response.ok:
                     payload = response.json()
                     if payload.get("access_token"):
@@ -2041,7 +2090,7 @@ class MainWindow(QMainWindow):
                     self._append_log("OpenAI OAuth complete. Exchanged id_token for API token (preferred path).")
                 except Exception as exc:
                     self._append_log(f"WARN: id_token exchange failed on all known endpoints; falling back to OAuth access_token. {exc}")
-                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT to the exact exchange URL your org expects (JSON or OAuth token-exchange form).")
+                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT to your org's documented token-exchange URL/format; providers may require different OAuth token-exchange parameters.")
             if not access_token:
                 access_token = str(token_payload.get("access_token", "")).strip()
 
