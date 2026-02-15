@@ -1708,6 +1708,7 @@ class MainWindow(QMainWindow):
         self.manual_image_submit_retry_count = 0
         self.manual_image_submit_token += 1
         self.manual_download_click_sent = False
+        selected_aspect_ratio = str(self.video_aspect_ratio.currentData() or "16:9")
 
         populate_script = rf"""
             (() => {{
@@ -1830,6 +1831,109 @@ class MainWindow(QMainWindow):
                 }
             })()
         """
+
+        set_image_options_script = r"""
+            (() => {
+                try {
+                    const desiredAspect = "{selected_aspect_ratio}";
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label, span, div";
+                    const textOf = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                    const clickableAncestor = (el) => {
+                        if (!el) return null;
+                        if (typeof el.closest === "function") {
+                            const ancestor = el.closest("button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label");
+                            if (ancestor) return ancestor;
+                        }
+                        return el;
+                    };
+                    const visibleTextElements = (root = document) => [...root.querySelectorAll(interactiveSelector)]
+                        .filter((el) => isVisible(el) && textOf(el));
+                    const selectedTextElements = (root = document) => visibleTextElements(root)
+                        .filter((el) => {
+                            const target = clickableAncestor(el);
+                            if (!target) return false;
+                            const ariaPressed = target.getAttribute("aria-pressed") === "true";
+                            const ariaSelected = target.getAttribute("aria-selected") === "true";
+                            const dataState = (target.getAttribute("data-state") || "").toLowerCase() === "checked";
+                            const dataSelected = target.getAttribute("data-selected") === "true";
+                            const classSelected = /\b(active|selected|checked|on)\b/i.test(target.className || "");
+                            const checkedInput = !!target.querySelector("input[type='radio']:checked, input[type='checkbox']:checked");
+                            return ariaPressed || ariaSelected || dataState || dataSelected || checkedInput || classSelected;
+                        });
+
+                    const emulateClick = (el) => {
+                        if (!el || !isVisible(el) || el.disabled) return false;
+                        const common = { bubbles: true, cancelable: true, composed: true };
+                        try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
+                        el.dispatchEvent(new MouseEvent("mousedown", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
+                        el.dispatchEvent(new MouseEvent("mouseup", common));
+                        el.dispatchEvent(new MouseEvent("click", common));
+                        return true;
+                    };
+
+                    const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(text));
+                    const clickByText = (patterns, root = document) => {
+                        const candidate = visibleTextElements(root).find((el) => matchesAny(textOf(el), patterns));
+                        const target = clickableAncestor(candidate);
+                        if (!target) return false;
+                        return emulateClick(target);
+                    };
+                    const hasSelectedByText = (patterns, root = document) => selectedTextElements(root)
+                        .some((el) => matchesAny(textOf(el), patterns));
+
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
+
+                    const aspectPatterns = {
+                        "16:9": [/^16\s*:\s*9$/i],
+                        "9:16": [/^9\s*:\s*16$/i],
+                        "1:1": [/^1\s*:\s*1$/i],
+                        "4:3": [/^4\s*:\s*3$/i],
+                    };
+                    const imagePatterns = [/(^|\s)image(\s|$)/i, /generate multiple images/i];
+                    const desiredAspectPatterns = aspectPatterns[desiredAspect] || aspectPatterns["16:9"];
+
+                    const optionsRequested = [];
+                    const optionsApplied = [];
+
+                    const applyOption = (name, patterns) => {
+                        const alreadySelected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        if (alreadySelected) {
+                            optionsApplied.push(`${name}(already-selected)`);
+                            return;
+                        }
+                        const clicked = clickByText(patterns, composer) || clickByText(patterns);
+                        if (clicked) optionsRequested.push(name);
+                        const selected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        if (selected) optionsApplied.push(name);
+                    };
+
+                    applyOption("image", imagePatterns);
+                    applyOption(desiredAspect, desiredAspectPatterns);
+
+                    const missingOptions = [];
+                    if (!(hasSelectedByText(imagePatterns, composer) || hasSelectedByText(imagePatterns))) {
+                        missingOptions.push("image");
+                    }
+                    if (!(hasSelectedByText(desiredAspectPatterns, composer) || hasSelectedByText(desiredAspectPatterns))) {
+                        missingOptions.push(desiredAspect);
+                    }
+
+                    return {
+                        ok: true,
+                        desiredAspect,
+                        optionsRequested,
+                        optionsApplied,
+                        missingOptions,
+                    };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+        set_image_options_script = set_image_options_script.replace('"{selected_aspect_ratio}"', json.dumps(selected_aspect_ratio))
 
         submit_script = r"""
             (() => {
@@ -1962,9 +2066,26 @@ class MainWindow(QMainWindow):
                 f"(opened={result.get('optionsOpened') if isinstance(result, dict) else 'unknown'}, "
                 f"itemFound={result.get('imageItemFound') if isinstance(result, dict) else 'unknown'}, "
                 f"itemClicked={result.get('imageClicked') if isinstance(result, dict) else 'unknown'}); "
-                f"populating prompt next (attempt {attempts})."
+                f"applying aspect option {selected_aspect_ratio} next (attempt {attempts})."
             )
-            QTimer.singleShot(450, lambda: self.browser.page().runJavaScript(populate_script, _after_populate))
+
+            def _after_image_options(options_result):
+                if not isinstance(options_result, dict) or not options_result.get("ok"):
+                    self._append_log(
+                        f"WARNING: Manual image variant {variant}: image options script failed; continuing. result={options_result!r}"
+                    )
+                else:
+                    requested_summary = ", ".join(options_result.get("optionsRequested") or []) or "none"
+                    applied_summary = ", ".join(options_result.get("optionsApplied") or []) or "none detected"
+                    missing_summary = ", ".join(options_result.get("missingOptions") or []) or "none"
+                    self._append_log(
+                        f"Manual image variant {variant}: image options requested: {requested_summary}; "
+                        f"applied markers: {applied_summary}; missing: {missing_summary}."
+                    )
+
+                QTimer.singleShot(450, lambda: self.browser.page().runJavaScript(populate_script, _after_populate))
+
+            QTimer.singleShot(450, lambda: self.browser.page().runJavaScript(set_image_options_script, _after_image_options))
 
         def _after_populate(result):
             if result in (None, ""):
