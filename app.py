@@ -70,6 +70,14 @@ OPENAI_OAUTH_CALLBACK_PORT = int(os.getenv("OPENAI_OAUTH_CALLBACK_PORT", "1455")
 OPENAI_TOKEN_PATHS = ("/token", "/oauth/token")
 OPENAI_CHATGPT_API_BASE = os.getenv("OPENAI_CHATGPT_API_BASE", "https://chatgpt.com/backend-api/codex")
 OPENAI_USE_CHATGPT_BACKEND = os.getenv("OPENAI_USE_CHATGPT_BACKEND", "1").strip().lower() not in {"0", "false", "no"}
+FACEBOOK_GRAPH_VERSION = os.getenv("FACEBOOK_GRAPH_VERSION", "v21.0")
+FACEBOOK_OAUTH_AUTHORIZE_URL = f"https://www.facebook.com/{FACEBOOK_GRAPH_VERSION}/dialog/oauth"
+FACEBOOK_OAUTH_TOKEN_URL = f"https://graph.facebook.com/{FACEBOOK_GRAPH_VERSION}/oauth/access_token"
+FACEBOOK_OAUTH_CALLBACK_PORT = int(os.getenv("FACEBOOK_OAUTH_CALLBACK_PORT", "1456"))
+FACEBOOK_OAUTH_SCOPE = os.getenv(
+    "FACEBOOK_OAUTH_SCOPE",
+    "pages_show_list,pages_manage_posts,pages_manage_videos,pages_read_engagement",
+)
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
@@ -1336,6 +1344,19 @@ class MainWindow(QMainWindow):
         self.facebook_access_token.setText(os.getenv("FACEBOOK_ACCESS_TOKEN", ""))
         form_layout.addRow("Facebook Access Token", self.facebook_access_token)
 
+        self.facebook_app_id = QLineEdit(os.getenv("FACEBOOK_APP_ID", ""))
+        form_layout.addRow("Facebook App ID", self.facebook_app_id)
+
+        self.facebook_app_secret = QLineEdit()
+        self.facebook_app_secret.setEchoMode(QLineEdit.Password)
+        self.facebook_app_secret.setText(os.getenv("FACEBOOK_APP_SECRET", ""))
+        form_layout.addRow("Facebook App Secret", self.facebook_app_secret)
+
+        self.facebook_oauth_btn = QPushButton("Authorize Facebook for Pages")
+        self.facebook_oauth_btn.setToolTip("Open Facebook OAuth in browser and populate Page ID + Page access token.")
+        self.facebook_oauth_btn.clicked.connect(self.authorize_facebook_pages)
+        form_layout.addRow("Facebook OAuth", self.facebook_oauth_btn)
+
         self.instagram_business_id = QLineEdit(os.getenv("INSTAGRAM_BUSINESS_ID", ""))
         form_layout.addRow("Instagram Business ID", self.instagram_business_id)
 
@@ -1562,6 +1583,8 @@ class MainWindow(QMainWindow):
             "youtube_api_key": self.youtube_api_key.text(),
             "facebook_page_id": self.facebook_page_id.text(),
             "facebook_access_token": self.facebook_access_token.text(),
+            "facebook_app_id": self.facebook_app_id.text(),
+            "facebook_app_secret": self.facebook_app_secret.text(),
             "instagram_business_id": self.instagram_business_id.text(),
             "instagram_access_token": self.instagram_access_token.text(),
             "tiktok_access_token": self.tiktok_access_token.text(),
@@ -1624,6 +1647,10 @@ class MainWindow(QMainWindow):
             self.facebook_page_id.setText(str(preferences["facebook_page_id"]))
         if "facebook_access_token" in preferences:
             self.facebook_access_token.setText(str(preferences["facebook_access_token"]))
+        if "facebook_app_id" in preferences:
+            self.facebook_app_id.setText(str(preferences["facebook_app_id"]))
+        if "facebook_app_secret" in preferences:
+            self.facebook_app_secret.setText(str(preferences["facebook_app_secret"]))
         if "instagram_business_id" in preferences:
             self.instagram_business_id.setText(str(preferences["instagram_business_id"]))
         if "instagram_access_token" in preferences:
@@ -2143,6 +2170,124 @@ class MainWindow(QMainWindow):
                 server.server_close()
             except Exception:
                 pass
+
+    def _exchange_facebook_oauth_code(self, code: str, redirect_uri: str, app_id: str, app_secret: str) -> str:
+        response = requests.get(
+            FACEBOOK_OAUTH_TOKEN_URL,
+            params={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "redirect_uri": redirect_uri,
+                "code": code,
+            },
+            timeout=60,
+        )
+        if not response.ok:
+            raise RuntimeError(f"Facebook OAuth token exchange failed: {response.status_code} {response.text[:500]}")
+        payload = response.json()
+        access_token = str(payload.get("access_token") or "").strip()
+        if not access_token:
+            raise RuntimeError("Facebook OAuth token response did not include access_token.")
+        return access_token
+
+    def _fetch_facebook_pages_for_user(self, user_access_token: str) -> list[dict]:
+        response = requests.get(
+            f"https://graph.facebook.com/{FACEBOOK_GRAPH_VERSION}/me/accounts",
+            params={"access_token": user_access_token, "fields": "id,name,access_token"},
+            timeout=60,
+        )
+        if not response.ok:
+            raise RuntimeError(f"Failed to fetch Facebook Pages: {response.status_code} {response.text[:500]}")
+        payload = response.json()
+        pages = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(pages, list):
+            raise RuntimeError(f"Unexpected Facebook Pages response: {payload}")
+        return [page for page in pages if isinstance(page, dict)]
+
+    def _run_facebook_oauth_flow(self) -> None:
+        app_id = self.facebook_app_id.text().strip()
+        app_secret = self.facebook_app_secret.text().strip()
+        if not app_id:
+            raise RuntimeError("Facebook App ID is required for OAuth.")
+        if not app_secret:
+            raise RuntimeError("Facebook App Secret is required for OAuth.")
+
+        state = secrets.token_hex(16)
+        redirect_uri = f"http://localhost:{FACEBOOK_OAUTH_CALLBACK_PORT}/auth/callback"
+        server, done_event, callback_result = self._start_oauth_callback_listener(FACEBOOK_OAUTH_CALLBACK_PORT)
+
+        try:
+            authorize_url = (
+                f"{FACEBOOK_OAUTH_AUTHORIZE_URL}?"
+                f"{urlencode({'client_id': app_id, 'redirect_uri': redirect_uri, 'state': state, 'response_type': 'code', 'scope': FACEBOOK_OAUTH_SCOPE})}"
+            )
+
+            opened = QDesktopServices.openUrl(QUrl(authorize_url))
+            if opened:
+                self._append_log("Opened Facebook OAuth authorize URL in your system browser. Complete sign-in to continue.")
+            else:
+                raise RuntimeError("Failed to open system browser for Facebook OAuth authorization.")
+
+            timeout_s = 240
+            start = time.time()
+            while not done_event.is_set() and (time.time() - start) < timeout_s:
+                QApplication.processEvents()
+                time.sleep(0.1)
+
+            if not done_event.is_set():
+                raise TimeoutError("Timed out waiting for Facebook OAuth callback.")
+
+            if callback_result.get("error"):
+                desc = callback_result.get("error_description") or callback_result["error"]
+                raise RuntimeError(f"Facebook OAuth authorization failed: {desc}")
+
+            callback_state = callback_result.get("state", "")
+            if callback_state != state:
+                raise RuntimeError("Facebook OAuth state mismatch; please retry authorization.")
+
+            code = callback_result.get("code", "")
+            if not code:
+                raise RuntimeError("Facebook OAuth callback did not include an authorization code.")
+
+            user_access_token = self._exchange_facebook_oauth_code(code, redirect_uri, app_id, app_secret)
+            pages = self._fetch_facebook_pages_for_user(user_access_token)
+            if not pages:
+                raise RuntimeError("Facebook OAuth succeeded, but no Pages were returned for this account.")
+
+            preferred_page_id = self.facebook_page_id.text().strip()
+            selected_page = None
+            if preferred_page_id:
+                selected_page = next((page for page in pages if str(page.get("id")) == preferred_page_id), None)
+            if selected_page is None:
+                selected_page = pages[0]
+
+            page_id = str(selected_page.get("id") or "").strip()
+            page_name = str(selected_page.get("name") or "").strip() or page_id
+            page_access_token = str(selected_page.get("access_token") or "").strip()
+            if not page_id or not page_access_token:
+                raise RuntimeError("Selected Facebook Page did not include required id/access_token.")
+
+            self.facebook_page_id.setText(page_id)
+            self.facebook_access_token.setText(page_access_token)
+            self._append_log(f"Facebook OAuth complete. Using Page '{page_name}' ({page_id}). Token populated.")
+
+            if preferred_page_id and preferred_page_id != page_id:
+                self._append_log(
+                    f"Requested Page ID {preferred_page_id} was not found for this user; selected first available Page {page_id}."
+                )
+        finally:
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception:
+                pass
+
+    def authorize_facebook_pages(self) -> None:
+        try:
+            self._run_facebook_oauth_flow()
+        except Exception as exc:
+            self._append_log(f"ERROR: Facebook OAuth flow failed: {exc}")
+            QMessageBox.critical(self, "Facebook OAuth Failed", str(exc))
 
     def open_ai_provider_login(self) -> None:
         source = self.prompt_source.currentData()

@@ -83,6 +83,10 @@ python app.py
 - `OPENAI_USE_CHATGPT_BACKEND` (default: `1`; routes `auth.openai.com` OAuth tokens to ChatGPT Codex backend)
 - `TIKTOK_ACCESS_TOKEN` (optional; can also be set in-app)
 - `TIKTOK_PRIVACY_LEVEL` (optional default: `PUBLIC_TO_EVERYONE`; options also include `MUTUAL_FOLLOW_FRIENDS`, `SELF_ONLY`)
+- `FACEBOOK_APP_ID` (optional; used by in-app Facebook OAuth helper)
+- `FACEBOOK_APP_SECRET` (optional; used by in-app Facebook OAuth helper)
+- `FACEBOOK_OAUTH_CALLBACK_PORT` (default: `1456`)
+- `FACEBOOK_OAUTH_SCOPE` (default: `pages_show_list,pages_manage_posts,pages_manage_videos,pages_read_engagement`)
 
 ### Embedded browser/runtime
 
@@ -121,7 +125,7 @@ python app.py
 ## Upload requirements
 
 - **YouTube:** uses OAuth. You can upload with an existing `youtube_token.json`; `client_secret.json` is only needed for first-time OAuth sign-in/token renewal when no valid token is available.
-- **Facebook:** requires Graph API credentials configured via environment/settings used by the uploader workflow.
+- **Facebook:** uploads use Graph API. You can either paste Page ID + Page Access Token manually, or use the in-app Facebook OAuth helper to authorize and auto-populate these fields.
 - **Instagram Reels:** requires Meta Graph API credentials and a publicly accessible HTTP(S) video URL.
 - **TikTok:** requires a TikTok OAuth access token with Content Posting API permissions (`video.upload` and `video.publish`). Optional privacy level can be configured in settings.
 
