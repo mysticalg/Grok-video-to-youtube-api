@@ -1927,18 +1927,35 @@ class MainWindow(QMainWindow):
                 endpoints.append(candidate)
 
         errors: list[str] = []
+
+        def _attempt(endpoint: str, *, as_form: bool) -> requests.Response:
+            if as_form:
+                data = {
+                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                    "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                    "subject_token": id_token,
+                    "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                    "client_id": OPENAI_CODEX_CLIENT_ID,
+                }
+                return _openai_post_serialized(endpoint, data=data, timeout=60)
+            return _openai_post_serialized(endpoint, json={"id_token": id_token}, timeout=60)
+
         for endpoint in endpoints:
-            response = _openai_post_serialized(endpoint, json={"id_token": id_token}, timeout=60)
-            if response.ok:
-                payload = response.json()
-                if payload.get("access_token"):
-                    return payload
-                errors.append(f"{endpoint} returned success without access_token")
-                continue
-            errors.append(f"{endpoint} => {response.status_code} {response.text[:200]}")
-            # Keep trying all known endpoints before failing so 403/404 on one path
-            # does not prevent a successful exchange on another path.
-            continue
+            is_oauth_token_endpoint = endpoint.rstrip("/").endswith("/oauth/token")
+            attempts = [False]
+            if is_oauth_token_endpoint:
+                attempts = [True, False]
+
+            for as_form in attempts:
+                response = _attempt(endpoint, as_form=as_form)
+                attempt_label = "form" if as_form else "json"
+                if response.ok:
+                    payload = response.json()
+                    if payload.get("access_token"):
+                        return payload
+                    errors.append(f"{endpoint} [{attempt_label}] returned success without access_token")
+                    continue
+                errors.append(f"{endpoint} [{attempt_label}] => {response.status_code} {response.text[:200]}")
 
         raise RuntimeError(f"ID token exchange failed. Tried endpoints: {' | '.join(errors)}")
 
@@ -2024,7 +2041,7 @@ class MainWindow(QMainWindow):
                     self._append_log("OpenAI OAuth complete. Exchanged id_token for API token (preferred path).")
                 except Exception as exc:
                     self._append_log(f"WARN: id_token exchange failed on all known endpoints; falling back to OAuth access_token. {exc}")
-                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT if your org provides a dedicated id_token exchange URL.")
+                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT to the exact exchange URL your org expects (JSON or OAuth token-exchange form).")
             if not access_token:
                 access_token = str(token_payload.get("access_token", "")).strip()
 
