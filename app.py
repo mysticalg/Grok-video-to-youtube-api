@@ -266,23 +266,28 @@ def _call_openai_chat_api(access_token: str, model: str, system: str, user: str,
             ],
             "temperature": temperature,
         }
-
+        
+    
     response = requests.post(endpoint, headers=headers, json=payload, timeout=90)
+   
     if not response.ok:
         raise RuntimeError(f"OpenAI request failed: {response.status_code} {response.text[:500]}")
-
+    
     if is_responses_api:
+        
         content_type = response.headers.get("Content-Type", "")
-        if "text/event-stream" in content_type:
-            streamed_text = _extract_text_from_responses_sse(response.text)
-            if streamed_text:
-                return streamed_text
+        #if "text/event-stream" in content_type:
+        streamed_text = _extract_text_from_responses_sse(response.text)
+            
+        #if streamed_text:
+        return streamed_text
+        raise RuntimeError(_extract_text_from_responses_sse(response.text))
         body = response.json()
         text_value = _extract_text_from_responses_body(body)
         if text_value:
             return text_value
         raise RuntimeError("OpenAI response did not include text output.")
-
+    
     body = response.json()
     return str(body["choices"][0]["message"]["content"]).strip()
 
@@ -2182,8 +2187,12 @@ class MainWindow(QMainWindow):
                 "category should be the best YouTube category id as a string (default 22 if unsure). "
                 f"Concept instruction: {instruction}"
             )
+           
             raw = self._call_selected_ai(system, user)
+            self._append_log(raw)
             parsed = _parse_json_object_from_text(raw)
+
+            
             manual_prompt = str(parsed.get("manual_prompt", "")).strip()
             if not manual_prompt:
                 raise RuntimeError("AI response did not include a manual_prompt.")
