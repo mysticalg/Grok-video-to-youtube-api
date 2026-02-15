@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSplitter,
+    QScrollArea,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -537,80 +538,10 @@ class MainWindow(QMainWindow):
         self.custom_music_file: Path | None = None
         self._build_ui()
         self._load_startup_preferences()
-        self._apply_space_age_theme()
+        self._apply_default_theme()
 
-    def _apply_space_age_theme(self) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow {
-                background-color: #070b14;
-            }
-            QWidget {
-                color: #e6edf7;
-                font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif;
-                font-size: 12px;
-            }
-            QGroupBox {
-                border: 1px solid #233046;
-                border-radius: 12px;
-                margin-top: 12px;
-                padding: 12px 10px 10px 10px;
-                background-color: #0d1524;
-            }
-            QGroupBox::title {
-                color: #8be9fd;
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-                font-weight: 700;
-            }
-            QPlainTextEdit, QLineEdit, QComboBox, QSpinBox, QTextBrowser {
-                background-color: #0a1220;
-                color: #e8f0ff;
-                border: 1px solid #2f466a;
-                border-radius: 8px;
-                padding: 6px;
-                selection-background-color: #2a4f80;
-            }
-            QPlainTextEdit:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-                border: 1px solid #69d2ff;
-            }
-            QPushButton {
-                border-radius: 8px;
-                padding: 8px 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                border: 1px solid #8be9fd;
-            }
-            QPushButton:pressed {
-                padding-top: 9px;
-            }
-            QMenuBar {
-                background-color: #0a1220;
-                color: #e6edf7;
-                border-bottom: 1px solid #24354e;
-            }
-            QMenuBar::item:selected, QMenu::item:selected {
-                background: #1e2f49;
-                color: #8be9fd;
-            }
-            QMenu {
-                background-color: #0d1524;
-                border: 1px solid #24354e;
-                color: #e6edf7;
-            }
-            QSplitter::handle {
-                background-color: #1f314d;
-            }
-            QToolTip {
-                background-color: #16253b;
-                color: #dff6ff;
-                border: 1px solid #69d2ff;
-                padding: 6px;
-            }
-            """
-        )
+    def _apply_default_theme(self) -> None:
+        self.setStyleSheet("")
 
     def _build_ui(self) -> None:
         splitter = QSplitter()
@@ -644,7 +575,6 @@ class MainWindow(QMainWindow):
         row.addWidget(self.count)
         prompt_group_layout.addLayout(row)
 
-        prompt_group_layout.addWidget(QLabel("Model/API settings moved to menu: Model/API Settings"))
         left_layout.addWidget(prompt_group)
 
         actions_group = QGroupBox("🚀 Actions")
@@ -1012,7 +942,12 @@ class MainWindow(QMainWindow):
         right_splitter.addWidget(bottom_splitter)
         right_splitter.setSizes([620, 280])
 
-        splitter.addWidget(left)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left)
+
+        splitter.addWidget(left_scroll)
         splitter.addWidget(right_splitter)
         splitter.setSizes([760, 1140])
 
