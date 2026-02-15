@@ -80,6 +80,66 @@ DEFAULT_MANUAL_PROMPT_TEXT = (
 )
 
 
+def _decode_openai_access_token(access_token: str) -> dict:
+    try:
+        parts = access_token.split(".")
+        if len(parts) < 2:
+            return {}
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload.encode("utf-8")).decode("utf-8")
+        data = json.loads(decoded)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _extract_claim_string(source: object, keys: tuple[str, ...]) -> str:
+    if not isinstance(source, dict):
+        return ""
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_openai_org_project_ids(access_token: str) -> tuple[str, str]:
+    claims = _decode_openai_access_token(access_token)
+    auth_claim = claims.get("https://api.openai.com/auth")
+
+    org_id = _extract_claim_string(auth_claim, ("organization_id", "org_id", "organization"))
+    project_id = _extract_claim_string(auth_claim, ("project_id", "project"))
+
+    if not org_id:
+        org_id = _extract_claim_string(claims, ("organization_id", "org_id", "organization"))
+    if not project_id:
+        project_id = _extract_claim_string(claims, ("project_id", "project"))
+
+    if not org_id:
+        organizations = claims.get("https://api.openai.com/organizations")
+        if isinstance(organizations, list):
+            for item in organizations:
+                org_id = _extract_claim_string(item, ("id", "organization_id", "org_id"))
+                if org_id:
+                    break
+
+    return org_id, project_id
+
+
+def _openai_headers_from_oauth_token(access_token: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    org_id, project_id = _extract_openai_org_project_ids(access_token)
+    if org_id:
+        headers["OpenAI-Organization"] = org_id
+    if project_id:
+        headers["OpenAI-Project"] = project_id
+    return headers
+
+
 def _env_int(name: str, default: int) -> int:
     value = os.getenv(name, "").strip()
     if not value:
@@ -250,7 +310,7 @@ class GenerateWorker(QThread):
         openai_token = self._openai_bearer_token()
         if not openai_token:
             raise RuntimeError("OpenAI access token is required. Use Browser Authorization to sign in.")
-        headers = {"Authorization": f"Bearer {openai_token}", "Content-Type": "application/json"}
+        headers = _openai_headers_from_oauth_token(openai_token)
         response = requests.post(
             f"{OPENAI_API_BASE}/chat/completions",
             headers=headers,
@@ -1944,7 +2004,7 @@ class MainWindow(QMainWindow):
             openai_token = self.openai_access_token.text().strip()
             if not openai_token:
                 raise RuntimeError("OpenAI access token is required. Use Browser Authorization to sign in.")
-            headers["Authorization"] = f"Bearer {openai_token}"
+            headers = _openai_headers_from_oauth_token(openai_token)
             payload["model"] = self.openai_chat_model.text().strip() or "gpt-5.1-codex"
             response = requests.post(f"{OPENAI_API_BASE}/chat/completions", headers=headers, json=payload, timeout=90)
             if not response.ok:
