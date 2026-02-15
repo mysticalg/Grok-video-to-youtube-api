@@ -12,7 +12,7 @@ from typing import Callable
 
 import requests
 from PySide6.QtCore import QMimeData, QThread, QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QImage
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QIcon, QImage, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
@@ -49,6 +49,8 @@ from youtube_uploader import upload_video_to_youtube
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
+THUMBNAILS_DIR = DOWNLOAD_DIR / ".thumbnails"
+THUMBNAILS_DIR.mkdir(exist_ok=True)
 CACHE_DIR = BASE_DIR / ".qtwebengine"
 QTWEBENGINE_USE_DISK_CACHE = True
 MIN_VALID_VIDEO_BYTES = 1 * 1024 * 1024
@@ -745,8 +747,27 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(QLabel("Generated Videos"))
         self.video_picker = QComboBox()
+        self.video_picker.setIconSize(QPixmap(120, 68).size())
         self.video_picker.currentIndexChanged.connect(self.show_selected_video)
         left_layout.addWidget(self.video_picker)
+
+        video_list_controls = QHBoxLayout()
+        self.open_video_btn = QPushButton("📂 Open Video")
+        self.open_video_btn.setToolTip("Open a local video file and add it to Generated Videos.")
+        self.open_video_btn.clicked.connect(self.open_local_video)
+        video_list_controls.addWidget(self.open_video_btn)
+
+        self.video_move_up_btn = QPushButton("⬆ Move Up")
+        self.video_move_up_btn.setToolTip("Move selected video earlier in the Generated Videos order.")
+        self.video_move_up_btn.clicked.connect(lambda: self.move_selected_video(-1))
+        video_list_controls.addWidget(self.video_move_up_btn)
+
+        self.video_move_down_btn = QPushButton("⬇ Move Down")
+        self.video_move_down_btn.setToolTip("Move selected video later in the Generated Videos order.")
+        self.video_move_down_btn.clicked.connect(lambda: self.move_selected_video(1))
+        video_list_controls.addWidget(self.video_move_down_btn)
+
+        left_layout.addLayout(video_list_controls)
 
         self.player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
@@ -966,6 +987,10 @@ class MainWindow(QMainWindow):
         load_action = QAction("Load Preferences...", self)
         load_action.triggered.connect(self.load_preferences)
         file_menu.addAction(load_action)
+
+        open_video_action = QAction("Open Video...", self)
+        open_video_action.triggered.connect(self.open_local_video)
+        file_menu.addAction(open_video_action)
 
         file_menu.addSeparator()
         exit_action = QAction("Exit", self)
@@ -2840,7 +2865,7 @@ class MainWindow(QMainWindow):
                         )
                     return
 
-                self.videos.append(
+                self.on_video_finished(
                     {
                         "title": f"Manual Browser Video {variant}",
                         "prompt": self.manual_prompt.toPlainText().strip(),
@@ -2849,9 +2874,6 @@ class MainWindow(QMainWindow):
                         "source_url": "browser-session",
                     }
                 )
-                self.video_picker.addItem(f"Manual Browser Video {variant} (web)")
-                self.video_picker.setCurrentIndex(self.video_picker.count() - 1)
-                self._append_log(f"Saved: {video_path}")
                 self._append_log("Download complete; returning embedded browser to grok.com/imagine.")
                 QTimer.singleShot(0, self.show_browser_page)
                 self.pending_manual_variant_for_download = None
@@ -2942,12 +2964,104 @@ class MainWindow(QMainWindow):
             self._append_log("Stop requested: API generation worker will stop after the current request completes.")
         self._append_log("Stop all requested: cleared queued manual image/video jobs and halted polling timers.")
 
+    def _build_video_label(self, video: dict) -> str:
+        title = str(video.get("title") or "Video")
+        resolution = str(video.get("resolution") or "unknown")
+        return f"{title} ({resolution})"
+
+    def _thumbnail_for_video(self, video_path: str) -> QIcon:
+        source_path = Path(video_path)
+        if not source_path.exists():
+            return QIcon()
+
+        safe_name = f"thumb_{source_path.stem}_{abs(hash(str(source_path.resolve()))) % 10**10}.jpg"
+        thumb_path = THUMBNAILS_DIR / safe_name
+        if not thumb_path.exists():
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-ss",
+                        "00:00:01.000",
+                        "-i",
+                        str(source_path),
+                        "-frames:v",
+                        "1",
+                        "-vf",
+                        "scale=120:-2",
+                        str(thumb_path),
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except Exception:
+                return QIcon()
+
+        pixmap = QPixmap(str(thumb_path))
+        if pixmap.isNull():
+            return QIcon()
+        return QIcon(pixmap)
+
+    def _refresh_video_picker(self, selected_index: int = -1) -> None:
+        self.video_picker.blockSignals(True)
+        self.video_picker.clear()
+        for video in self.videos:
+            self.video_picker.addItem(self._thumbnail_for_video(video["video_file_path"]), self._build_video_label(video))
+        self.video_picker.blockSignals(False)
+
+        if not self.videos:
+            return
+
+        if selected_index < 0 or selected_index >= len(self.videos):
+            selected_index = len(self.videos) - 1
+        self.video_picker.setCurrentIndex(selected_index)
+
     def on_video_finished(self, video: dict) -> None:
         self.videos.append(video)
-        label = f"{video['title']} ({video['resolution']})"
-        self.video_picker.addItem(label)
-        self.video_picker.setCurrentIndex(self.video_picker.count() - 1)
+        self._refresh_video_picker(selected_index=len(self.videos) - 1)
         self._append_log(f"Saved: {video['video_file_path']}")
+
+    def open_local_video(self) -> None:
+        video_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Video",
+            str(self.download_dir),
+            "Video Files (*.mp4 *.mov *.mkv *.webm *.avi)",
+        )
+        if not video_path:
+            return
+
+        resolution = "local"
+        try:
+            info = self._probe_video_stream_info(Path(video_path))
+            resolution = f"{info['width']}x{info['height']}"
+        except Exception:
+            pass
+
+        loaded_video = {
+            "title": f"Opened: {Path(video_path).stem}",
+            "prompt": "opened-local-video",
+            "resolution": resolution,
+            "video_file_path": video_path,
+            "source_url": "local-open",
+        }
+        self.on_video_finished(loaded_video)
+
+    def move_selected_video(self, delta: int) -> None:
+        index = self.video_picker.currentIndex()
+        if index < 0 or index >= len(self.videos):
+            return
+
+        target = index + delta
+        if target < 0 or target >= len(self.videos):
+            return
+
+        self.videos[index], self.videos[target] = self.videos[target], self.videos[index]
+        self._refresh_video_picker(selected_index=target)
+        self._append_log(f"Reordered videos: moved item to position {target + 1}.")
 
     def on_generation_error(self, error: str) -> None:
         self._append_log(f"ERROR: {error}")
