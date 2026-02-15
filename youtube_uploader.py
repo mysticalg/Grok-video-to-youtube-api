@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -20,6 +21,7 @@ def upload_video_to_youtube(
     tags: list[str],
     youtube_api_key: str = "",
     category_id: str = "22",
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> str:
     creds = None
     token_path = Path(token_file)
@@ -53,6 +55,12 @@ def upload_video_to_youtube(
 
     response = None
     while response is None:
-        _, response = request.next_chunk()
+        status, response = request.next_chunk()
+        if status is not None and progress_callback is not None:
+            progress_pct = int(max(0.0, min(1.0, status.progress())) * 100)
+            progress_callback(progress_pct, f"Uploading to YouTube... {progress_pct}%")
+
+    if progress_callback is not None:
+        progress_callback(100, "YouTube upload complete.")
 
     return response["id"]

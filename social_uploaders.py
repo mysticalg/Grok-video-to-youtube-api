@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Callable
 
 import requests
 
@@ -14,13 +15,42 @@ def upload_video_to_facebook_page(
     video_path: str,
     title: str,
     description: str,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> str:
     if not page_id.strip():
         raise ValueError("Facebook Page ID is required.")
     if not access_token.strip():
         raise ValueError("Facebook access token is required.")
 
-    with Path(video_path).open("rb") as video_file:
+    video_file_size = Path(video_path).stat().st_size
+    bytes_read = 0
+
+    def _read_with_progress(file_obj, size: int = -1):
+        nonlocal bytes_read
+        chunk = file_obj.read(size)
+        if not chunk:
+            return chunk
+        bytes_read += len(chunk)
+        if video_file_size > 0 and progress_callback is not None:
+            progress_pct = int((bytes_read / video_file_size) * 100)
+            bounded_pct = max(0, min(99, progress_pct))
+            progress_callback(bounded_pct, f"Uploading to Facebook... {bounded_pct}%")
+        return chunk
+
+    if progress_callback is not None:
+        progress_callback(2, "Preparing Facebook upload...")
+
+    with Path(video_path).open("rb") as raw_video_file:
+        class _ProgressFile:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def read(self, size: int = -1):
+                return _read_with_progress(self._wrapped, size)
+
+            def __getattr__(self, item):
+                return getattr(self._wrapped, item)
+
         response = requests.post(
             f"{GRAPH_API_BASE}/{page_id}/videos",
             data={
@@ -29,7 +59,7 @@ def upload_video_to_facebook_page(
                 "description": description,
                 "published": "false",
             },
-            files={"source": video_file},
+            files={"source": (Path(video_path).name, _ProgressFile(raw_video_file), "video/mp4")},
             timeout=600,
         )
 
@@ -40,6 +70,8 @@ def upload_video_to_facebook_page(
     video_id = payload.get("id")
     if not video_id:
         raise RuntimeError(f"Facebook upload did not return a video id: {payload}")
+    if progress_callback is not None:
+        progress_callback(100, "Facebook upload complete.")
     return str(video_id)
 
 
@@ -49,6 +81,7 @@ def upload_video_to_instagram_reels(
     video_url: str,
     caption: str,
     publish_timeout_s: int = 180,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> str:
     if not ig_user_id.strip():
         raise ValueError("Instagram Business Account ID is required.")
@@ -56,6 +89,9 @@ def upload_video_to_instagram_reels(
         raise ValueError("Instagram access token is required.")
     if not video_url.strip().lower().startswith(("http://", "https://")):
         raise ValueError("Instagram upload requires a public HTTP(S) video URL.")
+
+    if progress_callback is not None:
+        progress_callback(10, "Creating Instagram media container...")
 
     create_resp = requests.post(
         f"{GRAPH_API_BASE}/{ig_user_id}/media",
@@ -87,9 +123,13 @@ def upload_video_to_instagram_reels(
 
         status_code = (status_resp.json().get("status_code") or "").upper()
         if status_code in {"FINISHED", "PUBLISHED"}:
+            if progress_callback is not None:
+                progress_callback(85, "Instagram media processing finished. Publishing...")
             break
         if status_code in {"ERROR", "EXPIRED"}:
             raise RuntimeError(f"Instagram media processing failed with status: {status_code}")
+        if progress_callback is not None:
+            progress_callback(35, f"Instagram media processing: {status_code or 'IN_PROGRESS'}...")
         time.sleep(3)
     else:
         raise RuntimeError("Instagram media container did not finish processing before timeout.")
@@ -105,4 +145,6 @@ def upload_video_to_instagram_reels(
     media_id = publish_resp.json().get("id")
     if not media_id:
         raise RuntimeError(f"Instagram publish did not return media id: {publish_resp.text[:500]}")
+    if progress_callback is not None:
+        progress_callback(100, "Instagram upload complete.")
     return str(media_id)

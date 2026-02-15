@@ -471,6 +471,36 @@ class StitchWorker(QThread):
 
 
 
+class UploadWorker(QThread):
+    progress = Signal(int, str)
+    finished_upload = Signal(str, str)
+    failed = Signal(str, str)
+
+    def __init__(self, platform_name: str, upload_fn: Callable, upload_kwargs: dict):
+        super().__init__()
+        self.platform_name = platform_name
+        self.upload_fn = upload_fn
+        self.upload_kwargs = upload_kwargs
+
+    def run(self) -> None:
+        try:
+            result_id = self.upload_fn(
+                **self.upload_kwargs,
+                progress_callback=lambda pct, msg: self.progress.emit(max(0, min(100, int(pct))), msg),
+            )
+            self.finished_upload.emit(self.platform_name, str(result_id))
+        except TypeError:
+            try:
+                result_id = self.upload_fn(**self.upload_kwargs)
+            except Exception as exc:
+                self.failed.emit(self.platform_name, str(exc))
+                return
+            self.progress.emit(100, f"{self.platform_name} upload complete.")
+            self.finished_upload.emit(self.platform_name, str(result_id))
+        except Exception as exc:
+            self.failed.emit(self.platform_name, str(exc))
+
+
 class FilteredWebEnginePage(QWebEnginePage):
     """Suppress noisy third-party console warnings from grok.com in the embedded browser."""
 
@@ -511,6 +541,7 @@ class MainWindow(QMainWindow):
         self.videos: list[dict] = []
         self.worker: GenerateWorker | None = None
         self.stitch_worker: StitchWorker | None = None
+        self.upload_worker: UploadWorker | None = None
         self._ffmpeg_nvenc_checked = False
         self._ffmpeg_nvenc_available = False
         self.preview_fullscreen_overlay_btn: QPushButton | None = None
@@ -925,6 +956,16 @@ class MainWindow(QMainWindow):
         self.stitch_progress_bar.setValue(0)
         self.stitch_progress_bar.setVisible(False)
         log_layout.addWidget(self.stitch_progress_bar)
+
+        self.upload_progress_label = QLabel("Upload progress: idle")
+        self.upload_progress_label.setStyleSheet("color: #9fb3c8;")
+        log_layout.addWidget(self.upload_progress_label)
+
+        self.upload_progress_bar = QProgressBar()
+        self.upload_progress_bar.setRange(0, 100)
+        self.upload_progress_bar.setValue(0)
+        self.upload_progress_bar.setVisible(False)
+        log_layout.addWidget(self.upload_progress_bar)
 
         if QTWEBENGINE_USE_DISK_CACHE:
             self._append_log(f"Browser cache path: {CACHE_DIR}")
@@ -4560,27 +4601,22 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Missing client_secret.json", f"Expected: {client_secret_file}")
             return
 
-        self.upload_youtube_btn.setEnabled(False)
-        self._append_log("Starting YouTube upload...")
-        try:
-            video_id = upload_video_to_youtube(
-                client_secret_file=client_secret_file,
-                token_file=token_file,
-                video_path=video_path,
-                title=title,
-                description=description,
-                tags=hashtags,
-                category_id=category_id,
-                youtube_api_key=self.youtube_api_key.text().strip(),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "YouTube Upload Failed", str(exc))
-            self._append_log(f"ERROR: YouTube upload failed: {exc}")
-        else:
-            self._append_log(f"YouTube upload complete. Video ID: {video_id}")
-            QMessageBox.information(self, "YouTube Upload Complete", f"Video uploaded successfully. ID: {video_id}")
-        finally:
-            self.upload_youtube_btn.setEnabled(True)
+        self._start_upload(
+            platform_name="YouTube",
+            upload_fn=upload_video_to_youtube,
+            upload_kwargs={
+                "client_secret_file": client_secret_file,
+                "token_file": token_file,
+                "video_path": video_path,
+                "title": title,
+                "description": description,
+                "tags": hashtags,
+                "category_id": category_id,
+                "youtube_api_key": self.youtube_api_key.text().strip(),
+            },
+            success_dialog_title="YouTube Upload Complete",
+            success_prefix="Video uploaded successfully. ID:",
+        )
 
     def upload_selected_to_facebook(self) -> None:
         index = self.video_picker.currentIndex()
@@ -4593,24 +4629,19 @@ class MainWindow(QMainWindow):
         if not accepted:
             return
 
-        self.upload_facebook_btn.setEnabled(False)
-        self._append_log("Starting Facebook upload...")
-        try:
-            video_id = upload_video_to_facebook_page(
-                page_id=self.facebook_page_id.text().strip(),
-                access_token=self.facebook_access_token.text().strip(),
-                video_path=video_path,
-                title=title,
-                description=self._compose_social_text(description, hashtags),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Facebook Upload Failed", str(exc))
-            self._append_log(f"ERROR: Facebook upload failed: {exc}")
-        else:
-            self._append_log(f"Facebook upload complete. Video ID: {video_id}")
-            QMessageBox.information(self, "Facebook Upload Complete", f"Video uploaded successfully. ID: {video_id}")
-        finally:
-            self.upload_facebook_btn.setEnabled(True)
+        self._start_upload(
+            platform_name="Facebook",
+            upload_fn=upload_video_to_facebook_page,
+            upload_kwargs={
+                "page_id": self.facebook_page_id.text().strip(),
+                "access_token": self.facebook_access_token.text().strip(),
+                "video_path": video_path,
+                "title": title,
+                "description": self._compose_social_text(description, hashtags),
+            },
+            success_dialog_title="Facebook Upload Complete",
+            success_prefix="Video uploaded successfully. ID:",
+        )
 
     def upload_selected_to_instagram(self) -> None:
         index = self.video_picker.currentIndex()
@@ -4633,23 +4664,72 @@ class MainWindow(QMainWindow):
         if not accepted:
             return
 
+        self._start_upload(
+            platform_name="Instagram",
+            upload_fn=upload_video_to_instagram_reels,
+            upload_kwargs={
+                "ig_user_id": self.instagram_business_id.text().strip(),
+                "access_token": self.instagram_access_token.text().strip(),
+                "video_url": source_url,
+                "caption": self._compose_social_text(caption, hashtags),
+            },
+            success_dialog_title="Instagram Upload Complete",
+            success_prefix="Media published successfully. ID:",
+        )
+
+    def _start_upload(
+        self,
+        platform_name: str,
+        upload_fn: Callable,
+        upload_kwargs: dict,
+        success_dialog_title: str,
+        success_prefix: str,
+    ) -> None:
+        if self.upload_worker is not None and self.upload_worker.isRunning():
+            QMessageBox.information(self, "Upload In Progress", "Please wait for the current upload to finish.")
+            return
+
+        self.upload_youtube_btn.setEnabled(False)
+        self.upload_facebook_btn.setEnabled(False)
         self.upload_instagram_btn.setEnabled(False)
-        self._append_log("Starting Instagram upload...")
-        try:
-            media_id = upload_video_to_instagram_reels(
-                ig_user_id=self.instagram_business_id.text().strip(),
-                access_token=self.instagram_access_token.text().strip(),
-                video_url=source_url,
-                caption=self._compose_social_text(caption, hashtags),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Instagram Upload Failed", str(exc))
-            self._append_log(f"ERROR: Instagram upload failed: {exc}")
-        else:
-            self._append_log(f"Instagram upload complete. Media ID: {media_id}")
-            QMessageBox.information(self, "Instagram Upload Complete", f"Media published successfully. ID: {media_id}")
-        finally:
-            self.upload_instagram_btn.setEnabled(True)
+
+        self.upload_progress_label.setText(f"Upload progress: starting {platform_name} upload...")
+        self.upload_progress_bar.setValue(0)
+        self.upload_progress_bar.setVisible(True)
+        self._append_log(f"Starting {platform_name} upload...")
+
+        self.upload_worker = UploadWorker(platform_name=platform_name, upload_fn=upload_fn, upload_kwargs=upload_kwargs)
+        self.upload_worker.progress.connect(self._on_upload_progress)
+        self.upload_worker.finished_upload.connect(
+            lambda platform, upload_id: self._on_upload_finished(platform, upload_id, success_dialog_title, success_prefix)
+        )
+        self.upload_worker.failed.connect(self._on_upload_failed)
+        self.upload_worker.finished.connect(self._cleanup_upload_worker)
+        self.upload_worker.start()
+
+    def _on_upload_progress(self, value: int, message: str) -> None:
+        bounded_value = max(0, min(100, int(value)))
+        self.upload_progress_label.setText(f"Upload progress: {message}")
+        self.upload_progress_bar.setVisible(True)
+        self.upload_progress_bar.setValue(bounded_value)
+
+    def _on_upload_finished(self, platform_name: str, upload_id: str, dialog_title: str, success_prefix: str) -> None:
+        self.upload_progress_label.setText("Upload progress: complete")
+        self.upload_progress_bar.setValue(100)
+        self._append_log(f"{platform_name} upload complete. ID: {upload_id}")
+        QMessageBox.information(self, dialog_title, f"{success_prefix} {upload_id}")
+
+    def _on_upload_failed(self, platform_name: str, error_message: str) -> None:
+        self.upload_progress_label.setText(f"Upload progress: failed ({error_message[:120]})")
+        self.upload_progress_bar.setVisible(False)
+        self._append_log(f"ERROR: {platform_name} upload failed: {error_message}")
+        QMessageBox.critical(self, f"{platform_name} Upload Failed", error_message)
+
+    def _cleanup_upload_worker(self) -> None:
+        self.upload_youtube_btn.setEnabled(True)
+        self.upload_facebook_btn.setEnabled(True)
+        self.upload_instagram_btn.setEnabled(True)
+        self.upload_worker = None
 
     def _compose_social_text(self, base_text: str, hashtags: list[str]) -> str:
         tag_text = " ".join(f"#{tag.lstrip('#')}" for tag in hashtags if tag.strip())
