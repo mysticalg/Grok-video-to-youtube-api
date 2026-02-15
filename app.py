@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from social_uploaders import upload_video_to_facebook_page, upload_video_to_instagram_reels
 from youtube_uploader import upload_video_to_youtube
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -713,6 +714,24 @@ class MainWindow(QMainWindow):
         self.upload_youtube_btn.clicked.connect(self.upload_selected_to_youtube)
         actions_layout.addWidget(self.upload_youtube_btn, 8, 0, 1, 2)
 
+        self.upload_facebook_btn = QPushButton("📘 Upload Selected to Facebook")
+        self.upload_facebook_btn.setToolTip("Upload the selected local video to your Facebook Page as an unpublished video.")
+        self.upload_facebook_btn.setStyleSheet(
+            "background-color: #1877F2; color: white; font-weight: 700;"
+            "border: 1px solid #115bcc; border-radius: 6px; padding: 8px;"
+        )
+        self.upload_facebook_btn.clicked.connect(self.upload_selected_to_facebook)
+        actions_layout.addWidget(self.upload_facebook_btn, 9, 0, 1, 2)
+
+        self.upload_instagram_btn = QPushButton("📸 Upload Selected to Instagram")
+        self.upload_instagram_btn.setToolTip("Publish selected video to Instagram Reels using Meta Graph API (requires a public source URL).")
+        self.upload_instagram_btn.setStyleSheet(
+            "background-color: #8a3ab9; color: white; font-weight: 700;"
+            "border: 1px solid #6d2f94; border-radius: 6px; padding: 8px;"
+        )
+        self.upload_instagram_btn.clicked.connect(self.upload_selected_to_instagram)
+        actions_layout.addWidget(self.upload_instagram_btn, 10, 0, 1, 2)
+
         self.buy_coffee_btn = QPushButton("☕ Buy Me a Coffee")
         self.buy_coffee_btn.setToolTip("If this saves you hours, grab me a ☕")
         self.buy_coffee_btn.setStyleSheet(
@@ -720,7 +739,7 @@ class MainWindow(QMainWindow):
             "background-color: #ffdd00; color: #222; border-radius: 8px;"
         )
         self.buy_coffee_btn.clicked.connect(self.open_buy_me_a_coffee)
-        actions_layout.addWidget(self.buy_coffee_btn, 9, 0, 1, 2)
+        actions_layout.addWidget(self.buy_coffee_btn, 11, 0, 1, 2)
 
         left_layout.addWidget(actions_group)
 
@@ -887,6 +906,22 @@ class MainWindow(QMainWindow):
         self.youtube_api_key.setEchoMode(QLineEdit.Password)
         self.youtube_api_key.setText(os.getenv("YOUTUBE_API_KEY", ""))
         form_layout.addRow("YouTube API Key", self.youtube_api_key)
+
+        self.facebook_page_id = QLineEdit(os.getenv("FACEBOOK_PAGE_ID", ""))
+        form_layout.addRow("Facebook Page ID", self.facebook_page_id)
+
+        self.facebook_access_token = QLineEdit()
+        self.facebook_access_token.setEchoMode(QLineEdit.Password)
+        self.facebook_access_token.setText(os.getenv("FACEBOOK_ACCESS_TOKEN", ""))
+        form_layout.addRow("Facebook Access Token", self.facebook_access_token)
+
+        self.instagram_business_id = QLineEdit(os.getenv("INSTAGRAM_BUSINESS_ID", ""))
+        form_layout.addRow("Instagram Business ID", self.instagram_business_id)
+
+        self.instagram_access_token = QLineEdit()
+        self.instagram_access_token.setEchoMode(QLineEdit.Password)
+        self.instagram_access_token.setText(os.getenv("INSTAGRAM_ACCESS_TOKEN", ""))
+        form_layout.addRow("Instagram Access Token", self.instagram_access_token)
 
         self.download_path_input = QLineEdit(str(self.download_dir))
         self.download_path_input.setReadOnly(True)
@@ -1056,6 +1091,10 @@ class MainWindow(QMainWindow):
             "openai_api_key": self.openai_api_key.text(),
             "openai_chat_model": self.openai_chat_model.text(),
             "youtube_api_key": self.youtube_api_key.text(),
+            "facebook_page_id": self.facebook_page_id.text(),
+            "facebook_access_token": self.facebook_access_token.text(),
+            "instagram_business_id": self.instagram_business_id.text(),
+            "instagram_access_token": self.instagram_access_token.text(),
             "concept": self.concept.toPlainText(),
             "manual_prompt": self.manual_prompt.toPlainText(),
             "manual_prompt_default": self.manual_prompt_default_input.toPlainText(),
@@ -1090,6 +1129,14 @@ class MainWindow(QMainWindow):
             self.openai_chat_model.setText(str(preferences["openai_chat_model"]))
         if "youtube_api_key" in preferences:
             self.youtube_api_key.setText(str(preferences["youtube_api_key"]))
+        if "facebook_page_id" in preferences:
+            self.facebook_page_id.setText(str(preferences["facebook_page_id"]))
+        if "facebook_access_token" in preferences:
+            self.facebook_access_token.setText(str(preferences["facebook_access_token"]))
+        if "instagram_business_id" in preferences:
+            self.instagram_business_id.setText(str(preferences["instagram_business_id"]))
+        if "instagram_access_token" in preferences:
+            self.instagram_access_token.setText(str(preferences["instagram_access_token"]))
         if "concept" in preferences:
             self.concept.setPlainText(str(preferences["concept"]))
         if "manual_prompt" in preferences:
@@ -3582,7 +3629,7 @@ class MainWindow(QMainWindow):
             return
 
         video_path = self.videos[index]["video_file_path"]
-        title, description, accepted = self._show_youtube_upload_dialog()
+        title, description, accepted = self._show_upload_dialog("YouTube")
         if not accepted:
             return
 
@@ -3613,17 +3660,87 @@ class MainWindow(QMainWindow):
         finally:
             self.upload_youtube_btn.setEnabled(True)
 
-    def _show_youtube_upload_dialog(self) -> tuple[str, str, bool]:
+    def upload_selected_to_facebook(self) -> None:
+        index = self.video_picker.currentIndex()
+        if index < 0 or index >= len(self.videos):
+            QMessageBox.warning(self, "No Video Selected", "Select a video to upload first.")
+            return
+
+        video_path = self.videos[index]["video_file_path"]
+        title, description, accepted = self._show_upload_dialog("Facebook")
+        if not accepted:
+            return
+
+        self.upload_facebook_btn.setEnabled(False)
+        self._append_log("Starting Facebook upload...")
+        try:
+            video_id = upload_video_to_facebook_page(
+                page_id=self.facebook_page_id.text().strip(),
+                access_token=self.facebook_access_token.text().strip(),
+                video_path=video_path,
+                title=title,
+                description=description,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Facebook Upload Failed", str(exc))
+            self._append_log(f"ERROR: Facebook upload failed: {exc}")
+        else:
+            self._append_log(f"Facebook upload complete. Video ID: {video_id}")
+            QMessageBox.information(self, "Facebook Upload Complete", f"Video uploaded successfully. ID: {video_id}")
+        finally:
+            self.upload_facebook_btn.setEnabled(True)
+
+    def upload_selected_to_instagram(self) -> None:
+        index = self.video_picker.currentIndex()
+        if index < 0 or index >= len(self.videos):
+            QMessageBox.warning(self, "No Video Selected", "Select a video to upload first.")
+            return
+
+        selected_video = self.videos[index]
+        source_url = str(selected_video.get("source_url") or "").strip()
+        if not source_url.startswith(("http://", "https://")):
+            QMessageBox.warning(
+                self,
+                "Instagram Upload Requires URL",
+                "Instagram Graph API video publishing requires a publicly reachable HTTP(S) URL. "
+                "This selected video only exists locally.",
+            )
+            return
+
+        _, caption, accepted = self._show_upload_dialog("Instagram", title_enabled=False)
+        if not accepted:
+            return
+
+        self.upload_instagram_btn.setEnabled(False)
+        self._append_log("Starting Instagram upload...")
+        try:
+            media_id = upload_video_to_instagram_reels(
+                ig_user_id=self.instagram_business_id.text().strip(),
+                access_token=self.instagram_access_token.text().strip(),
+                video_url=source_url,
+                caption=caption,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Instagram Upload Failed", str(exc))
+            self._append_log(f"ERROR: Instagram upload failed: {exc}")
+        else:
+            self._append_log(f"Instagram upload complete. Media ID: {media_id}")
+            QMessageBox.information(self, "Instagram Upload Complete", f"Media published successfully. ID: {media_id}")
+        finally:
+            self.upload_instagram_btn.setEnabled(True)
+
+    def _show_upload_dialog(self, platform_name: str, title_enabled: bool = True) -> tuple[str, str, bool]:
         dialog = QDialog(self)
-        dialog.setWindowTitle("YouTube Upload Details")
+        dialog.setWindowTitle(f"{platform_name} Upload Details")
         dialog_layout = QVBoxLayout(dialog)
 
-        dialog_layout.addWidget(QLabel("YouTube Title"))
         title_input = QLineEdit()
-        title_input.setText("AI Generated Video")
-        dialog_layout.addWidget(title_input)
+        if title_enabled:
+            dialog_layout.addWidget(QLabel(f"{platform_name} Title"))
+            title_input.setText("AI Generated Video")
+            dialog_layout.addWidget(title_input)
 
-        dialog_layout.addWidget(QLabel("YouTube Description"))
+        dialog_layout.addWidget(QLabel(f"{platform_name} Description / Caption"))
         description_input = QPlainTextEdit()
         description_input.setPlaceholderText("Describe this upload...")
         dialog_layout.addWidget(description_input)
