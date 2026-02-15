@@ -99,6 +99,15 @@ def _env_float(value: str, default: float) -> float:
     return parsed if parsed >= 0 else default
 
 
+def _normalize_http_url(url: str) -> str:
+    cleaned = url.strip()
+    if cleaned.startswith("ttps://"):
+        return f"h{cleaned}"
+    if cleaned.startswith("http://") or cleaned.startswith("https://"):
+        return cleaned
+    return cleaned
+
+
 _OPENAI_SERIAL_REQUEST_LOCK = threading.Lock()
 _OPENAI_LAST_REQUEST_TS = 0.0
 
@@ -1906,14 +1915,31 @@ class MainWindow(QMainWindow):
         return org_id, project_id
 
     def _exchange_openai_id_token_for_api_token(self, id_token: str) -> dict:
-        endpoint = OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT or f"{OPENAI_API_BASE}/auth/id_token/exchange"
-        response = _openai_post_serialized(endpoint, json={"id_token": id_token}, timeout=60)
-        if not response.ok:
-            raise RuntimeError(f"ID token exchange failed: {response.status_code} {response.text[:500]}")
-        payload = response.json()
-        if not payload.get("access_token"):
-            raise RuntimeError("ID token exchange response did not include access_token.")
-        return payload
+        configured = _normalize_http_url(OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT)
+        oauth_direct = f"{OPENAI_OAUTH_ISSUER.rstrip('/')}/token"
+        api_fallback = f"{OPENAI_API_BASE.rstrip('/')}/auth/id_token/exchange"
+
+        endpoints: list[str] = []
+        for candidate in (configured, oauth_direct, api_fallback):
+            candidate = candidate.strip()
+            if candidate and candidate not in endpoints:
+                endpoints.append(candidate)
+
+        errors: list[str] = []
+        for endpoint in endpoints:
+            response = _openai_post_serialized(endpoint, json={"id_token": id_token}, timeout=60)
+            if response.ok:
+                payload = response.json()
+                if payload.get("access_token"):
+                    return payload
+                errors.append(f"{endpoint} returned success without access_token")
+                continue
+            errors.append(f"{endpoint} => {response.status_code} {response.text[:200]}")
+            if response.status_code in {404, 405}:
+                continue
+            break
+
+        raise RuntimeError(f"ID token exchange failed. Tried endpoints: {' | '.join(errors)}")
 
     def _exchange_openai_oauth_code(self, code: str, redirect_uri: str, code_verifier: str) -> dict:
         token_endpoint = f"{OPENAI_OAUTH_ISSUER}/oauth/token"
@@ -1997,6 +2023,7 @@ class MainWindow(QMainWindow):
                     self._append_log("OpenAI OAuth complete. Exchanged id_token for API token (preferred path).")
                 except Exception as exc:
                     self._append_log(f"WARN: id_token exchange failed; falling back to OAuth access_token. {exc}")
+                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT (e.g., https://auth.openai.com/token) if your org uses a custom token exchange URL.")
             if not access_token:
                 access_token = str(token_payload.get("access_token", "")).strip()
 
