@@ -2,7 +2,7 @@
 
 **Version:** `1.0.0`
 
-A desktop-first Python/PyQt app for generating Grok videos, iterating quickly in-browser, and uploading finished results to YouTube.
+A desktop-first Python/PySide6 app for generating Grok videos, iterating quickly in-browser, stitching clips, and uploading finished results to social platforms.
 
 ## What it does
 
@@ -11,28 +11,28 @@ A desktop-first Python/PyQt app for generating Grok videos, iterating quickly in
   - Grok API prompt generation
   - OpenAI API prompt generation
 - Queue multiple variants in one run.
+- Choose video resolution (480p/720p), duration (6s/10s), and aspect ratio (2:3, 3:2, 1:1, 9:16, 16:9) before generating prompts/jobs; these are also applied when setting Grok Imagine options in Populate Video/Image flows.
 - Keep a generated-video list in-session.
 - Preview generated or local videos inside the app.
 - Continue from the latest frame or a local seed image.
-- Stitch all listed videos into one final output, with optional crossfade blending between clips.
-- Optionally add local MP3/WAV background music while stitching, with mute/volume control for original clip audio.
-- Custom music automatically trims equally from the beginning/end when it is longer than the stitched video.
-- Configurable stitched-audio fade-in/fade-out (default: 0.5s).
-- Optional stitched-output enhancements:
-  - Frame interpolation (24 → 48 fps or 60 fps) for smoother motion.
-  - AI-style 2x upscaling (Lanczos, capped at 4K output).
-- Stitching now shows a progress window with elapsed/ETA and active stitch settings.
-- Configure video options (including crossfade duration) from settings.
-- Set a custom download folder in settings.
-- Set a default manual prompt template in settings.
-- Upload a selected video to YouTube.
+- Stitch all listed videos into one final output:
+  - Hard-cut or crossfade transitions
+  - Optional frame interpolation (48/60 fps)
+  - Optional 2x upscaling (capped at 4K)
+  - Optional custom WAV/MP3 music mix with per-track volume and fade controls
+- See stitch progress with elapsed/ETA and active setting summary.
+- Configure app behavior from settings dialogs (Model/API settings, video options, default manual prompt, custom download folder).
+- Upload the selected local video to:
+  - YouTube
+  - Facebook Page
+  - Instagram Reels (requires a publicly reachable video URL)
 
 ## Download Windows binary (recommended)
 
 If you just want to run the app on Windows, download the prebuilt zip here:
 
 - **Releases:** https://github.com/mysticalg/Grok-video-to-youtube-api/releases
-- **Latest CI artifacts (main branch builds):** https://github.com/dhookster/Grok-video-to-youtube-api/actions/workflows/windows-build-release.yml
+- **Latest CI builds (workflow runs):** https://github.com/mysticalg/Grok-video-to-youtube-api/actions/workflows/windows-build-release.yml
 
 Look for `GrokVideoDesktopStudio-windows-x64.zip`.
 
@@ -56,6 +56,8 @@ python app.py
 
 ## Environment variables
 
+### Generation
+
 - `GROK_API_KEY`
 - `GROK_CHAT_MODEL` (default: `grok-3-mini`)
 - `GROK_VIDEO_MODEL` (default: `grok-video-latest`)
@@ -63,17 +65,18 @@ python app.py
 - `OPENAI_API_KEY`
 - `OPENAI_CHAT_MODEL` (default: `gpt-4o-mini`)
 - `OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
+
+### Embedded browser/runtime
+
 - `GROK_PLAYWRIGHT_BROWSER` (default: `chromium`; options: `chromium`, `firefox`, `webkit`)
+- `GROK_BROWSER_CACHE_DIR` (optional custom QtWebEngine cache directory)
+- `GROK_BROWSER_DISK_CACHE_BYTES` (default: `536870912`, 512 MB)
+- `GROK_BROWSER_MEDIA_CACHE_BYTES` (default: `268435456`, 256 MB)
+- `QTWEBENGINE_CHROMIUM_FLAGS` (optional additional Chromium flags)
 
 ## Browser performance tuning (embedded Chromium)
 
 If in-app playback feels choppy, the app enables a persistent disk cache and Chromium GPU/media flags by default.
-
-Optional overrides:
-
-- `GROK_BROWSER_DISK_CACHE_BYTES` (default: `536870912`, 512 MB)
-- `GROK_BROWSER_MEDIA_CACHE_BYTES` (default: `268435456`, 256 MB)
-- `QTWEBENGINE_CHROMIUM_FLAGS`
 
 Example:
 
@@ -84,12 +87,17 @@ export QTWEBENGINE_CHROMIUM_FLAGS="--max-gum-fps=30"
 python app.py
 ```
 
+## Upload requirements
+
+- **YouTube:** requires `client_secret.json` (token stored in `youtube_token.json` after OAuth).
+- **Facebook:** requires Graph API credentials configured via environment/settings used by the uploader workflow.
+- **Instagram Reels:** requires Meta Graph API credentials and a publicly accessible HTTP(S) video URL.
+
 ## Notes
 
 - Manual prompt mode runs against the embedded `grok.com/imagine` browser session (no xAI API generation call).
-- Downloaded videos are saved under `downloads/`.
-- Last-frame extraction, video stitching, interpolation, upscaling, and custom music mixing require `ffmpeg` in `PATH`.
-- YouTube upload requires `client_secret.json` (token saved to `youtube_token.json`).
+- Downloaded videos are saved under `downloads/` unless you choose a custom folder in settings.
+- Last-frame extraction, stitching, interpolation, upscaling, and custom audio mixing require `ffmpeg` in `PATH`.
 
 ## Legal
 
@@ -106,12 +114,6 @@ Also supported via:
 
 - PayPal: https://www.paypal.com/paypalme/dhookster
 - Crypto (SOL): `6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp`
-
-### Demo callout
-
-Use this line in demos/tutorials:
-
-> If this saves you hours, grab me a ☕.
 
 ## Build Windows binaries on GitHub
 

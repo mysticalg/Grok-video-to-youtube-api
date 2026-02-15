@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSplitter,
+    QScrollArea,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -58,7 +59,7 @@ MIN_VALID_VIDEO_BYTES = 1 * 1024 * 1024
 API_BASE_URL = os.getenv("XAI_API_BASE", "https://api.x.ai/v1")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
-GITHUB_REPO_URL = "https://github.com/dhookster/Grok-video-to-youtube-api"
+GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
 GITHUB_ACTIONS_RUNS_URL = f"{GITHUB_REPO_URL}/actions/workflows/windows-build-release.yml"
 BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/dhooksterm"
@@ -152,6 +153,10 @@ class PromptConfig:
     manual_prompt: str
     openai_api_key: str
     openai_chat_model: str
+    video_resolution: str
+    video_resolution_label: str
+    video_aspect_ratio: str
+    video_duration_seconds: int
 
 
 class GenerateWorker(QThread):
@@ -241,15 +246,15 @@ class GenerateWorker(QThread):
 
         system = "You write highly visual prompts for short cinematic AI videos."
         user = (
-            "Create one polished video prompt for a 10 second scene in 720p from this concept: "
-            f"{self.prompt_config.concept}. This is variant #{variant}."
+            "Create one polished video prompt for a "
+            f"{self.prompt_config.video_duration_seconds} second scene in "
+            f"{self.prompt_config.video_resolution_label} with a {self.prompt_config.video_aspect_ratio} aspect ratio "
+            f"from this concept: {self.prompt_config.concept}. This is variant #{variant}."
         )
 
-        if source == "openai":
-            return self.call_openai_chat(system, user)
-        return self.call_grok_chat(system, user)
+        return self.call_openai_chat(system, user) if source == "openai" else self.call_grok_chat(system, user)
 
-    def start_video_job(self, prompt: str, resolution: str) -> str:
+    def start_video_job(self, prompt: str, resolution: str, duration_seconds: int) -> str:
         self._ensure_not_stopped()
         response = requests.post(
             f"{API_BASE_URL}/imagine/video/generations",
@@ -257,7 +262,7 @@ class GenerateWorker(QThread):
             json={
                 "model": self.config.image_model,
                 "prompt": prompt,
-                "duration_seconds": 10,
+                "duration_seconds": duration_seconds,
                 "resolution": resolution,
                 "fps": 24,
             },
@@ -301,18 +306,17 @@ class GenerateWorker(QThread):
     def generate_one_video(self, variant: int) -> dict:
         prompt = self.build_prompt(variant)
 
-        video_job_id = None
-        chosen_resolution = None
-        for resolution in ["1280x720", "854x480"]:
-            try:
-                video_job_id = self.start_video_job(prompt, resolution)
-                chosen_resolution = resolution
-                break
-            except requests.HTTPError:
-                continue
-
-        if not video_job_id:
-            raise RuntimeError("Could not start a video generation job")
+        try:
+            video_job_id = self.start_video_job(
+                prompt,
+                self.prompt_config.video_resolution,
+                int(self.prompt_config.video_duration_seconds),
+            )
+        except requests.HTTPError as exc:
+            raise RuntimeError(
+                "Could not start a video generation job with the selected resolution "
+                f"({self.prompt_config.video_resolution_label})."
+            ) from exc
 
         result = self.poll_video_job(video_job_id)
         video_url = result.get("output", {}).get("video_url") or result.get("video_url")
@@ -323,7 +327,7 @@ class GenerateWorker(QThread):
         return {
             "title": f"Generated Video {variant}",
             "prompt": prompt,
-            "resolution": chosen_resolution,
+            "resolution": f"{self.prompt_config.video_resolution_label} ({self.prompt_config.video_aspect_ratio})",
             "video_file_path": str(file_path),
             "source_url": video_url,
         }
@@ -537,80 +541,10 @@ class MainWindow(QMainWindow):
         self.custom_music_file: Path | None = None
         self._build_ui()
         self._load_startup_preferences()
-        self._apply_space_age_theme()
+        self._apply_default_theme()
 
-    def _apply_space_age_theme(self) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow {
-                background-color: #070b14;
-            }
-            QWidget {
-                color: #e6edf7;
-                font-family: 'Segoe UI', 'Inter', 'Roboto', sans-serif;
-                font-size: 12px;
-            }
-            QGroupBox {
-                border: 1px solid #233046;
-                border-radius: 12px;
-                margin-top: 12px;
-                padding: 12px 10px 10px 10px;
-                background-color: #0d1524;
-            }
-            QGroupBox::title {
-                color: #8be9fd;
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-                font-weight: 700;
-            }
-            QPlainTextEdit, QLineEdit, QComboBox, QSpinBox, QTextBrowser {
-                background-color: #0a1220;
-                color: #e8f0ff;
-                border: 1px solid #2f466a;
-                border-radius: 8px;
-                padding: 6px;
-                selection-background-color: #2a4f80;
-            }
-            QPlainTextEdit:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-                border: 1px solid #69d2ff;
-            }
-            QPushButton {
-                border-radius: 8px;
-                padding: 8px 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                border: 1px solid #8be9fd;
-            }
-            QPushButton:pressed {
-                padding-top: 9px;
-            }
-            QMenuBar {
-                background-color: #0a1220;
-                color: #e6edf7;
-                border-bottom: 1px solid #24354e;
-            }
-            QMenuBar::item:selected, QMenu::item:selected {
-                background: #1e2f49;
-                color: #8be9fd;
-            }
-            QMenu {
-                background-color: #0d1524;
-                border: 1px solid #24354e;
-                color: #e6edf7;
-            }
-            QSplitter::handle {
-                background-color: #1f314d;
-            }
-            QToolTip {
-                background-color: #16253b;
-                color: #dff6ff;
-                border: 1px solid #69d2ff;
-                padding: 6px;
-            }
-            """
-        )
+    def _apply_default_theme(self) -> None:
+        self.setStyleSheet("")
 
     def _build_ui(self) -> None:
         splitter = QSplitter()
@@ -642,9 +576,32 @@ class MainWindow(QMainWindow):
         self.count.setRange(1, 10)
         self.count.setValue(1)
         row.addWidget(self.count)
+
+        row.addWidget(QLabel("Resolution"))
+        self.video_resolution = QComboBox()
+        self.video_resolution.addItem("480p (854x480)", "854x480")
+        self.video_resolution.addItem("720p (1280x720)", "1280x720")
+        self.video_resolution.setCurrentIndex(1)
+        row.addWidget(self.video_resolution)
+
+        row.addWidget(QLabel("Duration"))
+        self.video_duration = QComboBox()
+        self.video_duration.addItem("6s", 6)
+        self.video_duration.addItem("10s", 10)
+        self.video_duration.setCurrentIndex(1)
+        row.addWidget(self.video_duration)
+
+        row.addWidget(QLabel("Aspect"))
+        self.video_aspect_ratio = QComboBox()
+        self.video_aspect_ratio.addItem("2:3", "2:3")
+        self.video_aspect_ratio.addItem("3:2", "3:2")
+        self.video_aspect_ratio.addItem("1:1", "1:1")
+        self.video_aspect_ratio.addItem("9:16", "9:16")
+        self.video_aspect_ratio.addItem("16:9", "16:9")
+        self.video_aspect_ratio.setCurrentIndex(4)
+        row.addWidget(self.video_aspect_ratio)
         prompt_group_layout.addLayout(row)
 
-        prompt_group_layout.addWidget(QLabel("Model/API settings moved to menu: Model/API Settings"))
         left_layout.addWidget(prompt_group)
 
         actions_group = QGroupBox("🚀 Actions")
@@ -1012,7 +969,12 @@ class MainWindow(QMainWindow):
         right_splitter.addWidget(bottom_splitter)
         right_splitter.setSizes([620, 280])
 
-        splitter.addWidget(left)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left)
+
+        splitter.addWidget(left_scroll)
         splitter.addWidget(right_splitter)
         splitter.setSizes([760, 1140])
 
@@ -1289,6 +1251,9 @@ class MainWindow(QMainWindow):
             "manual_prompt": self.manual_prompt.toPlainText(),
             "manual_prompt_default": self.manual_prompt_default_input.toPlainText(),
             "count": self.count.value(),
+            "video_resolution": str(self.video_resolution.currentData()),
+            "video_duration_seconds": int(self.video_duration.currentData()),
+            "video_aspect_ratio": str(self.video_aspect_ratio.currentData()),
             "stitch_crossfade_enabled": self.stitch_crossfade_checkbox.isChecked(),
             "stitch_interpolation_enabled": self.stitch_interpolation_checkbox.isChecked(),
             "stitch_interpolation_fps": int(self.stitch_interpolation_fps.currentData()),
@@ -1348,6 +1313,22 @@ class MainWindow(QMainWindow):
                 self.count.setValue(int(preferences["count"]))
             except (TypeError, ValueError):
                 pass
+        if "video_resolution" in preferences:
+            resolution_index = self.video_resolution.findData(str(preferences["video_resolution"]))
+            if resolution_index >= 0:
+                self.video_resolution.setCurrentIndex(resolution_index)
+        if "video_duration_seconds" in preferences:
+            try:
+                duration_value = int(preferences["video_duration_seconds"])
+                duration_index = self.video_duration.findData(duration_value)
+                if duration_index >= 0:
+                    self.video_duration.setCurrentIndex(duration_index)
+            except (TypeError, ValueError):
+                pass
+        if "video_aspect_ratio" in preferences:
+            aspect_index = self.video_aspect_ratio.findData(str(preferences["video_aspect_ratio"]))
+            if aspect_index >= 0:
+                self.video_aspect_ratio.setCurrentIndex(aspect_index)
         if "stitch_crossfade_enabled" in preferences:
             self.stitch_crossfade_checkbox.setChecked(bool(preferences["stitch_crossfade_enabled"]))
         if "stitch_interpolation_enabled" in preferences:
@@ -1665,12 +1646,21 @@ class MainWindow(QMainWindow):
             image_model=self.image_model.text().strip() or "grok-video-latest",
         )
 
+        selected_resolution = str(self.video_resolution.currentData() or "1280x720")
+        selected_resolution_label = self.video_resolution.currentText().split(" ", 1)[0]
+        selected_duration_seconds = int(self.video_duration.currentData() or 10)
+        selected_aspect_ratio = str(self.video_aspect_ratio.currentData() or "16:9")
+
         prompt_config = PromptConfig(
             source=source,
             concept=concept,
             manual_prompt=manual_prompt,
             openai_api_key=self.openai_api_key.text().strip(),
             openai_chat_model=self.openai_chat_model.text().strip() or "gpt-4o-mini",
+            video_resolution=selected_resolution,
+            video_resolution_label=selected_resolution_label,
+            video_aspect_ratio=selected_aspect_ratio,
+            video_duration_seconds=selected_duration_seconds,
         )
 
         self.worker = GenerateWorker(config, prompt_config, self.count.value(), self.download_dir)
@@ -1740,6 +1730,7 @@ class MainWindow(QMainWindow):
         self.manual_image_submit_retry_count = 0
         self.manual_image_submit_token += 1
         self.manual_download_click_sent = False
+        selected_aspect_ratio = str(self.video_aspect_ratio.currentData() or "16:9")
 
         populate_script = rf"""
             (() => {{
@@ -1862,6 +1853,143 @@ class MainWindow(QMainWindow):
                 }
             })()
         """
+
+        set_image_options_script = r"""
+            (() => {
+                try {
+                    const desiredAspect = "{selected_aspect_ratio}";
+                    const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+                    const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label, span, div";
+                    const textOf = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                    const clickableAncestor = (el) => {
+                        if (!el) return null;
+                        if (typeof el.closest === "function") {
+                            const ancestor = el.closest("button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label");
+                            if (ancestor) return ancestor;
+                        }
+                        return el;
+                    };
+                    const visibleTextElements = (root = document) => [...root.querySelectorAll(interactiveSelector)]
+                        .filter((el) => isVisible(el) && textOf(el));
+                    const selectedTextElements = (root = document) => visibleTextElements(root)
+                        .filter((el) => {
+                            const target = clickableAncestor(el);
+                            if (!target) return false;
+                            const ariaPressed = target.getAttribute("aria-pressed") === "true";
+                            const ariaSelected = target.getAttribute("aria-selected") === "true";
+                            const dataState = (target.getAttribute("data-state") || "").toLowerCase() === "checked";
+                            const dataSelected = target.getAttribute("data-selected") === "true";
+                            const classSelected = /\b(active|selected|checked|on)\b/i.test(target.className || "");
+                            const checkedInput = !!target.querySelector("input[type='radio']:checked, input[type='checkbox']:checked");
+                            return ariaPressed || ariaSelected || dataState || dataSelected || checkedInput || classSelected;
+                        });
+
+                    const emulateClick = (el) => {
+                        if (!el || !isVisible(el) || el.disabled) return false;
+                        const common = { bubbles: true, cancelable: true, composed: true };
+                        try { el.dispatchEvent(new PointerEvent("pointerdown", common)); } catch (_) {}
+                        el.dispatchEvent(new MouseEvent("mousedown", common));
+                        try { el.dispatchEvent(new PointerEvent("pointerup", common)); } catch (_) {}
+                        el.dispatchEvent(new MouseEvent("mouseup", common));
+                        el.dispatchEvent(new MouseEvent("click", common));
+                        return true;
+                    };
+
+                    const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(text));
+                    const clickByText = (patterns, root = document) => {
+                        const candidate = visibleTextElements(root).find((el) => matchesAny(textOf(el), patterns));
+                        const target = clickableAncestor(candidate);
+                        if (!target) return false;
+                        return emulateClick(target);
+                    };
+                    const hasSelectedByText = (patterns, root = document) => selectedTextElements(root)
+                        .some((el) => matchesAny(textOf(el), patterns));
+
+                    const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i]");
+                    const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
+
+                    const aspectPatterns = {
+                        "2:3": [/^2\s*:\s*3$/i],
+                        "3:2": [/^3\s*:\s*2$/i],
+                        "1:1": [/^1\s*:\s*1$/i],
+                        "9:16": [/^9\s*:\s*16$/i],
+                        "16:9": [/^16\s*:\s*9$/i],
+                    };
+                    const imagePatterns = [/(^|\s)image(\s|$)/i, /generate multiple images/i];
+                    const desiredAspectPatterns = aspectPatterns[desiredAspect] || aspectPatterns["16:9"];
+
+                    const optionsRequested = [];
+                    const optionsApplied = [];
+
+                    const findVisibleButtonByAriaLabel = (ariaLabel, root = document) => {
+                        const candidates = [...root.querySelectorAll(`button[aria-label='${ariaLabel}']`)];
+                        return candidates.find((el) => isVisible(el) && !el.disabled) || null;
+                    };
+                    const isOptionButtonSelected = (button) => {
+                        if (!button) return false;
+                        const ariaPressed = button.getAttribute("aria-pressed") === "true";
+                        const ariaSelected = button.getAttribute("aria-selected") === "true";
+                        const dataSelected = button.getAttribute("data-selected") === "true";
+                        const dataState = (button.getAttribute("data-state") || "").toLowerCase();
+                        if (ariaPressed || ariaSelected || dataSelected || dataState === "checked" || dataState === "active") return true;
+                        if (/\b(active|selected|checked|on|text-fg-primary)\b/i.test(button.className || "")) return true;
+                        const selectedFill = button.querySelector(".bg-primary:not([class*='bg-primary/'])");
+                        return !!selectedFill;
+                    };
+                    const hasSelectedByAriaLabel = (ariaLabel, root = document) => {
+                        const button = findVisibleButtonByAriaLabel(ariaLabel, root);
+                        return isOptionButtonSelected(button);
+                    };
+                    const clickVisibleButtonByAriaLabel = (ariaLabel, root = document) => {
+                        const button = findVisibleButtonByAriaLabel(ariaLabel, root) || findVisibleButtonByAriaLabel(ariaLabel, document);
+                        if (!button) return false;
+                        return emulateClick(button);
+                    };
+
+                    const applyOption = (name, patterns, ariaLabel = null) => {
+                        const alreadySelected = (ariaLabel && (hasSelectedByAriaLabel(ariaLabel, composer) || hasSelectedByAriaLabel(ariaLabel)))
+                            || hasSelectedByText(patterns, composer)
+                            || hasSelectedByText(patterns);
+                        if (alreadySelected) {
+                            optionsApplied.push(`${name}(already-selected)`);
+                            return;
+                        }
+                        const clicked = (ariaLabel && (clickVisibleButtonByAriaLabel(ariaLabel, composer) || clickVisibleButtonByAriaLabel(ariaLabel)))
+                            || clickByText(patterns, composer)
+                            || clickByText(patterns);
+                        if (clicked) optionsRequested.push(name);
+                        const selected = (ariaLabel && (hasSelectedByAriaLabel(ariaLabel, composer) || hasSelectedByAriaLabel(ariaLabel)))
+                            || hasSelectedByText(patterns, composer)
+                            || hasSelectedByText(patterns);
+                        if (selected) optionsApplied.push(name);
+                    };
+
+                    applyOption("image", imagePatterns);
+                    applyOption(desiredAspect, desiredAspectPatterns, desiredAspect);
+
+                    const missingOptions = [];
+                    if (!(hasSelectedByText(imagePatterns, composer) || hasSelectedByText(imagePatterns))) {
+                        missingOptions.push("image");
+                    }
+                    if (!(hasSelectedByAriaLabel(desiredAspect, composer) || hasSelectedByAriaLabel(desiredAspect)
+                        || hasSelectedByText(desiredAspectPatterns, composer)
+                        || hasSelectedByText(desiredAspectPatterns))) {
+                        missingOptions.push(desiredAspect);
+                    }
+
+                    return {
+                        ok: true,
+                        desiredAspect,
+                        optionsRequested,
+                        optionsApplied,
+                        missingOptions,
+                    };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.stack ? err.stack : err) };
+                }
+            })()
+        """
+        set_image_options_script = set_image_options_script.replace('"{selected_aspect_ratio}"', json.dumps(selected_aspect_ratio))
 
         submit_script = r"""
             (() => {
@@ -1994,9 +2122,26 @@ class MainWindow(QMainWindow):
                 f"(opened={result.get('optionsOpened') if isinstance(result, dict) else 'unknown'}, "
                 f"itemFound={result.get('imageItemFound') if isinstance(result, dict) else 'unknown'}, "
                 f"itemClicked={result.get('imageClicked') if isinstance(result, dict) else 'unknown'}); "
-                f"populating prompt next (attempt {attempts})."
+                f"applying aspect option {selected_aspect_ratio} next (attempt {attempts})."
             )
-            QTimer.singleShot(450, lambda: self.browser.page().runJavaScript(populate_script, _after_populate))
+
+            def _after_image_options(options_result):
+                if not isinstance(options_result, dict) or not options_result.get("ok"):
+                    self._append_log(
+                        f"WARNING: Manual image variant {variant}: image options script failed; continuing. result={options_result!r}"
+                    )
+                else:
+                    requested_summary = ", ".join(options_result.get("optionsRequested") or []) or "none"
+                    applied_summary = ", ".join(options_result.get("optionsApplied") or []) or "none detected"
+                    missing_summary = ", ".join(options_result.get("missingOptions") or []) or "none"
+                    self._append_log(
+                        f"Manual image variant {variant}: image options requested: {requested_summary}; "
+                        f"applied markers: {applied_summary}; missing: {missing_summary}."
+                    )
+
+                QTimer.singleShot(450, lambda: self.browser.page().runJavaScript(populate_script, _after_populate))
+
+            QTimer.singleShot(450, lambda: self.browser.page().runJavaScript(set_image_options_script, _after_image_options))
 
         def _after_populate(result):
             if result in (None, ""):
@@ -2280,9 +2425,13 @@ class MainWindow(QMainWindow):
         self.pending_manual_download_type = "video"
         self.manual_download_click_sent = False
         action_delay_ms = 1000
+        selected_quality_label = self.video_resolution.currentText().split(" ", 1)[0]
+        selected_duration_label = f"{int(self.video_duration.currentData() or 10)}s"
+        selected_aspect_ratio = str(self.video_aspect_ratio.currentData() or "16:9")
         self._append_log(
-            f"Populating prompt for manual variant {variant} in browser, setting video options, "
-            f"then force submitting with {action_delay_ms}ms delays between each action. Remaining repeats after this: {remaining_count}."
+            f"Populating prompt for manual variant {variant} in browser, setting video options "
+            f"({selected_quality_label}, {selected_aspect_ratio}), then force submitting with {action_delay_ms}ms delays between each action. "
+            f"Remaining repeats after this: {remaining_count}."
         )
 
         escaped_prompt = repr(prompt)
@@ -2481,51 +2630,100 @@ class MainWindow(QMainWindow):
 
                     const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], textarea[aria-label*='Make a video' i], input[aria-label*='Make a video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i], [contenteditable='true'][aria-label*='Type to customize this video' i], [contenteditable='true'][data-placeholder*='Type to customize this video' i], [contenteditable='true'][aria-label*='Type to customize video' i], [contenteditable='true'][data-placeholder*='Type to customize video' i], [contenteditable='true'][aria-label*='Make a video' i], [contenteditable='true'][data-placeholder*='Customize video' i]");
                     const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
-                    const clickVisibleButtonByAriaLabel = (ariaLabel) => {
-                        const button = [...document.querySelectorAll(`button[aria-label='${ariaLabel}']`)]
-                            .find((el) => isVisible(el) && !el.disabled);
+                    const findVisibleButtonByAriaLabel = (ariaLabel, root = document) => {
+                        const candidates = [...root.querySelectorAll(`button[aria-label='${ariaLabel}']`)];
+                        return candidates.find((el) => isVisible(el) && !el.disabled) || null;
+                    };
+                    const isOptionButtonSelected = (button) => {
+                        if (!button) return false;
+                        const ariaPressed = button.getAttribute("aria-pressed") === "true";
+                        const ariaSelected = button.getAttribute("aria-selected") === "true";
+                        const dataSelected = button.getAttribute("data-selected") === "true";
+                        const dataState = (button.getAttribute("data-state") || "").toLowerCase();
+                        if (ariaPressed || ariaSelected || dataSelected || dataState === "checked" || dataState === "active") return true;
+                        if (/\b(active|selected|checked|on|text-fg-primary)\b/i.test(button.className || "")) return true;
+                        const selectedFill = button.querySelector(".bg-primary:not([class*='bg-primary/'])");
+                        return !!selectedFill;
+                    };
+                    const hasSelectedByAriaLabel = (ariaLabel, root = document) => {
+                        const button = findVisibleButtonByAriaLabel(ariaLabel, root);
+                        return isOptionButtonSelected(button);
+                    };
+                    const clickVisibleButtonByAriaLabel = (ariaLabel, root = document) => {
+                        const button = findVisibleButtonByAriaLabel(ariaLabel, root) || findVisibleButtonByAriaLabel(ariaLabel, document);
                         if (!button) return false;
                         return emulateClick(button);
                     };
 
-                    const requiredOptions = ["video", "720p", "10s", "16:9"];
+                    const desiredQuality = "{selected_quality_label}";
+                    const desiredAspect = "{selected_aspect_ratio}";
+                    const desiredDuration = "{selected_duration_label}";
+                    const qualityPatterns = {
+                        "480p": [/480\s*p/i, /854\s*[x×]\s*480/i],
+                        "720p": [/720\s*p/i, /1280\s*[x×]\s*720/i]
+                    };
+                    const durationPatterns = {
+                        "6s": [/^6\s*s(ec(onds?)?)?$/i],
+                        "10s": [/^10\s*s(ec(onds?)?)?$/i]
+                    };
+                    const aspectPatterns = {
+                        "2:3": [/^2\s*:\s*3$/i],
+                        "3:2": [/^3\s*:\s*2$/i],
+                        "1:1": [/^1\s*:\s*1$/i],
+                        "9:16": [/^9\s*:\s*16$/i],
+                        "16:9": [/^16\s*:\s*9$/i]
+                    };
+
+                    const requiredOptions = ["video", desiredQuality, desiredDuration, desiredAspect];
                     const optionsRequested = [];
                     const optionsApplied = [];
 
                     const applyOption = (name, patterns, ariaLabel) => {
-                        const isAlreadySelected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        const isAlreadySelected = (ariaLabel && (hasSelectedByAriaLabel(ariaLabel, composer) || hasSelectedByAriaLabel(ariaLabel)))
+                            || hasSelectedByText(patterns, composer)
+                            || hasSelectedByText(patterns);
                         if (isAlreadySelected) {
                             optionsApplied.push(`${name}(already-selected)`);
                             return;
                         }
-                        const clicked = (ariaLabel && clickVisibleButtonByAriaLabel(ariaLabel))
+                        const clicked = (ariaLabel && (clickVisibleButtonByAriaLabel(ariaLabel, composer) || clickVisibleButtonByAriaLabel(ariaLabel)))
                             || clickByText(patterns, composer)
                             || clickByText(patterns);
                         if (clicked) {
                             optionsRequested.push(name);
                         }
-                        const isNowSelected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        const isNowSelected = (ariaLabel && (hasSelectedByAriaLabel(ariaLabel, composer) || hasSelectedByAriaLabel(ariaLabel)))
+                            || hasSelectedByText(patterns, composer)
+                            || hasSelectedByText(patterns);
                         if (clicked && !isNowSelected) {
-                            clickByText(patterns, composer) || clickByText(patterns);
+                            if (ariaLabel) {
+                                clickVisibleButtonByAriaLabel(ariaLabel, composer) || clickVisibleButtonByAriaLabel(ariaLabel);
+                            } else {
+                                clickByText(patterns, composer) || clickByText(patterns);
+                            }
                         }
-                        const selected = hasSelectedByText(patterns, composer) || hasSelectedByText(patterns);
+                        const selected = (ariaLabel && (hasSelectedByAriaLabel(ariaLabel, composer) || hasSelectedByAriaLabel(ariaLabel)))
+                            || hasSelectedByText(patterns, composer)
+                            || hasSelectedByText(patterns);
                         if (selected) optionsApplied.push(name);
                     };
 
                     applyOption("video", [/^video$/i], null);
-                    applyOption("720p", [/720\s*p/i, /1280\s*[x×]\s*720/i], "720p");
-                    applyOption("10s", [/^10\s*s(ec(onds?)?)?$/i], "10s");
-                    applyOption("16:9", [/^16\s*:\s*9$/i], "16:9");
+                    applyOption(desiredQuality, qualityPatterns[desiredQuality] || qualityPatterns["720p"], desiredQuality);
+                    applyOption(desiredDuration, durationPatterns[desiredDuration] || durationPatterns["10s"], desiredDuration);
+                    applyOption(desiredAspect, aspectPatterns[desiredAspect] || aspectPatterns["16:9"], desiredAspect);
 
                     const missingOptions = requiredOptions.filter((option) => {
                         const patterns = option === "video"
                             ? [/^video$/i]
-                            : option === "720p"
-                                ? [/720\s*p/i, /1280\s*[x×]\s*720/i]
-                                : option === "10s"
-                                    ? [/^10\s*s(ec(onds?)?)?$/i]
-                                    : [/^16\s*:\s*9$/i];
-                        return !(hasSelectedByText(patterns, composer) || hasSelectedByText(patterns));
+                            : option === desiredQuality
+                                ? (qualityPatterns[desiredQuality] || qualityPatterns["720p"])
+                                : option === desiredDuration
+                                    ? (durationPatterns[desiredDuration] || durationPatterns["10s"])
+                                    : (aspectPatterns[desiredAspect] || aspectPatterns["16:9"]);
+                        const ariaLabel = option === "video" ? null : option;
+                        const selectedByAria = ariaLabel && (hasSelectedByAriaLabel(ariaLabel, composer) || hasSelectedByAriaLabel(ariaLabel));
+                        return !(selectedByAria || hasSelectedByText(patterns, composer) || hasSelectedByText(patterns));
                     });
 
                     return {
@@ -2540,6 +2738,9 @@ class MainWindow(QMainWindow):
                 }
             })()
         """
+        set_options_script = set_options_script.replace('"{selected_quality_label}"', json.dumps(selected_quality_label))
+        set_options_script = set_options_script.replace('"{selected_duration_label}"', json.dumps(selected_duration_label))
+        set_options_script = set_options_script.replace('"{selected_aspect_ratio}"', json.dumps(selected_aspect_ratio))
 
         close_options_script = r"""
             (() => {
