@@ -66,6 +66,7 @@ OPENAI_OAUTH_ISSUER = os.getenv("OPENAI_OAUTH_ISSUER", "https://auth.openai.com"
 OPENAI_CODEX_CLIENT_ID = os.getenv("OPENAI_CODEX_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann")
 OPENAI_OAUTH_SCOPE = "openid profile email offline_access"
 OPENAI_OAUTH_CALLBACK_PORT = int(os.getenv("OPENAI_OAUTH_CALLBACK_PORT", "1455"))
+OPENAI_TOKEN_PATHS = ("/token", "/oauth/token")
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
@@ -1831,24 +1832,26 @@ class MainWindow(QMainWindow):
         return server, event, result
 
     def _exchange_openai_oauth_code(self, code: str, redirect_uri: str, code_verifier: str) -> dict:
-        token_endpoint = f"{OPENAI_OAUTH_ISSUER}/oauth/token"
-        response = requests.post(
-            token_endpoint,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "client_id": OPENAI_CODEX_CLIENT_ID,
-                "code_verifier": code_verifier,
-            },
-            timeout=60,
-        )
-        if not response.ok:
-            raise RuntimeError(f"OAuth token exchange failed: {response.status_code} {response.text[:500]}")
-        payload = response.json()
-        if not payload.get("access_token"):
-            raise RuntimeError("OAuth token response did not include access_token.")
-        return payload
+        request_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": OPENAI_CODEX_CLIENT_ID,
+            "code_verifier": code_verifier,
+        }
+        last_error: str | None = None
+
+        for token_path in OPENAI_TOKEN_PATHS:
+            token_endpoint = f"{OPENAI_OAUTH_ISSUER}{token_path}"
+            response = requests.post(token_endpoint, data=request_data, timeout=60)
+            if response.ok:
+                payload = response.json()
+                if not payload.get("access_token"):
+                    raise RuntimeError("OAuth token response did not include access_token.")
+                return payload
+            last_error = f"{response.status_code} {response.text[:500]}"
+
+        raise RuntimeError(f"OAuth token exchange failed for all configured endpoints: {last_error}")
 
     def _run_openai_oauth_flow(self) -> None:
         state = secrets.token_hex(16)

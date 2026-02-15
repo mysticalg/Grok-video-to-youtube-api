@@ -95,6 +95,7 @@ For OpenAI prompt generation, the app now uses OAuth access tokens.
 
 In **Model/API Settings**, set Prompt Source to **OpenAI API**, then run Browser Authorization (or paste an access token).
 Use **Open Provider Login in Browser** to run a full OAuth code+PKCE flow (Codex-style) in your system browser. On success, the app auto-fills **OpenAI Access Token**.
+The token exchange now tries both `https://auth.openai.com/token` and `https://auth.openai.com/oauth/token` so either issuer route works.
 
 ## Browser performance tuning (embedded Chromium)
 
