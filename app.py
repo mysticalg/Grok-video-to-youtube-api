@@ -1060,7 +1060,7 @@ class MainWindow(QMainWindow):
         self.openai_access_token.setText(os.getenv("OPENAI_ACCESS_TOKEN", ""))
         form_layout.addRow("OpenAI Access Token", self.openai_access_token)
 
-        self.openai_chat_model = QLineEdit(os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"))
+        self.openai_chat_model = QLineEdit(os.getenv("OPENAI_CHAT_MODEL", "gpt-5.1-codex"))
         form_layout.addRow("OpenAI Chat Model", self.openai_chat_model)
 
         self.ai_auth_method = QComboBox()
@@ -1734,7 +1734,7 @@ class MainWindow(QMainWindow):
             manual_prompt=manual_prompt,
             openai_api_key=self.openai_api_key.text().strip(),
             openai_access_token=self.openai_access_token.text().strip(),
-            openai_chat_model=self.openai_chat_model.text().strip() or "gpt-4o-mini",
+            openai_chat_model=self.openai_chat_model.text().strip() or "gpt-5.1-codex",
             video_resolution=selected_resolution,
             video_resolution_label=selected_resolution_label,
             video_aspect_ratio=selected_aspect_ratio,
@@ -1750,9 +1750,9 @@ class MainWindow(QMainWindow):
     def open_ai_provider_login(self) -> None:
         source = self.prompt_source.currentData()
         if source == "openai":
-            self.browser.setUrl(QUrl("https://platform.openai.com/settings/profile"))
+            self.browser.setUrl(QUrl("https://auth.openai.com/"))
             self._append_log(
-                "Opened OpenAI platform in browser. After sign-in/authorization, paste token into OpenAI Access Token."
+                "Opened auth.openai.com in browser for app authorization. After approval, paste the bearer token into OpenAI Access Token."
             )
             return
 
@@ -1775,7 +1775,7 @@ class MainWindow(QMainWindow):
             if not openai_token:
                 raise RuntimeError("OpenAI API key or access token is required.")
             headers["Authorization"] = f"Bearer {openai_token}"
-            payload["model"] = self.openai_chat_model.text().strip() or "gpt-4o-mini"
+            payload["model"] = self.openai_chat_model.text().strip() or "gpt-5.1-codex"
             response = requests.post(f"{OPENAI_API_BASE}/chat/completions", headers=headers, json=payload, timeout=90)
             if not response.ok:
                 raise RuntimeError(f"OpenAI request failed: {response.status_code} {response.text[:400]}")

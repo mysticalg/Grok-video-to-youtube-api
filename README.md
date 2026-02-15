@@ -74,7 +74,7 @@ python app.py
 - `XAI_API_BASE` (default: `https://api.x.ai/v1`)
 - `OPENAI_API_KEY`
 - `OPENAI_ACCESS_TOKEN` (optional bearer token from browser/OAuth-style sign-in)
-- `OPENAI_CHAT_MODEL` (default: `gpt-4o-mini`)
+- `OPENAI_CHAT_MODEL` (default: `gpt-5.1-codex`)
 - `OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
 
 ### Embedded browser/runtime
