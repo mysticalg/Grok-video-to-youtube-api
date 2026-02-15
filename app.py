@@ -1753,13 +1753,17 @@ class MainWindow(QMainWindow):
     def open_ai_provider_login(self) -> None:
         source = self.prompt_source.currentData()
         if source == "openai":
-            self.browser.setUrl(QUrl("https://auth.openai.com/"))
-            self._append_log(
-                "Opened auth.openai.com in browser for app authorization. After approval, paste the bearer token into OpenAI Access Token."
-            )
-            self._append_log(
-                "Note: occasional Statsig network warnings from auth.openai.com are third-party telemetry noise and can be ignored."
-            )
+            auth_url = QUrl("https://auth.openai.com/")
+            opened = QDesktopServices.openUrl(auth_url)
+            if opened:
+                self._append_log(
+                    "Opened auth.openai.com in your system browser for app authorization. After approval, paste the bearer token into OpenAI Access Token."
+                )
+            else:
+                self.browser.setUrl(auth_url)
+                self._append_log(
+                    "Could not launch system browser. Opened auth.openai.com in embedded browser instead; if the page is blank, copy this URL into your normal browser."
+                )
             return
 
         self.browser.setUrl(QUrl("https://grok.com/"))

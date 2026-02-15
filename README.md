@@ -93,6 +93,7 @@ For OpenAI prompt generation, the app now accepts either:
 - `OPENAI_ACCESS_TOKEN` (paste a bearer token obtained via your own browser authorization flow).
 
 In **Model/API Settings**, set Prompt Source to **OpenAI API**, then either provide API key or access token.
+Use **Open Provider Login in Browser** to launch `auth.openai.com` in your system browser (recommended over embedded WebView).
 
 ## Browser performance tuning (embedded Chromium)
 
