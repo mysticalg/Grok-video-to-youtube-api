@@ -1,0 +1,48 @@
+name: Build macOS Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build macOS app bundle
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name GrokVideoDesktopStudio --collect-all PySide6 app.py
+
+      - name: Package zip
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent GrokVideoDesktopStudio.app GrokVideoDesktopStudio-macos-universal2.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrokVideoDesktopStudio-macos-universal2
+          path: dist/GrokVideoDesktopStudio-macos-universal2.zip
+
+      - name: Publish release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/GrokVideoDesktopStudio-macos-universal2.zip

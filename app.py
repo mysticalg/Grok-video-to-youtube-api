@@ -61,7 +61,7 @@ OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
-GITHUB_ACTIONS_RUNS_URL = f"{GITHUB_REPO_URL}/actions/workflows/windows-build-release.yml"
+GITHUB_ACTIONS_RUNS_URL = f"{GITHUB_REPO_URL}/actions"
 BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/dhooksterm"
 PAYPAL_DONATION_URL = "https://www.paypal.com/paypalme/dhookster"
 SOL_DONATION_ADDRESS = "6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp"
@@ -106,6 +106,13 @@ def _resolve_qtwebengine_cache_dir() -> tuple[Path, bool]:
     local_app_data = os.getenv("LOCALAPPDATA", "").strip()
     if local_app_data:
         candidates.append(Path(local_app_data) / "GrokVideoDesktopStudio" / "qtwebengine")
+
+    xdg_cache_home = os.getenv("XDG_CACHE_HOME", "").strip()
+    if xdg_cache_home:
+        candidates.append(Path(xdg_cache_home) / "GrokVideoDesktopStudio" / "qtwebengine")
+
+    candidates.append(Path.home() / "Library" / "Caches" / "GrokVideoDesktopStudio" / "qtwebengine")
+    candidates.append(Path.home() / ".cache" / "GrokVideoDesktopStudio" / "qtwebengine")
 
     candidates.append(BASE_DIR / ".qtwebengine")
     candidates.append(Path(tempfile.gettempdir()) / "GrokVideoDesktopStudio" / "qtwebengine")
@@ -1118,7 +1125,7 @@ class MainWindow(QMainWindow):
         releases_action.triggered.connect(self.open_github_releases_page)
         help_menu.addAction(releases_action)
 
-        actions_action = QAction("Windows Build Artifacts", self)
+        actions_action = QAction("Build Artifacts", self)
         actions_action.triggered.connect(self.open_github_actions_runs_page)
         help_menu.addAction(actions_action)
 
@@ -1142,8 +1149,8 @@ class MainWindow(QMainWindow):
             "<b>Authors:</b> Grok Video Desktop Studio contributors<br>"
             "<b>Desktop workflow:</b> PyQt + embedded Grok browser + YouTube uploader</p>"
             "<p><b>Downloads</b><br>"
-            f"- Windows binary releases: <a href='{GITHUB_RELEASES_URL}'>{GITHUB_RELEASES_URL}</a><br>"
-            f"- Latest workflow artifacts: <a href='{GITHUB_ACTIONS_RUNS_URL}'>{GITHUB_ACTIONS_RUNS_URL}</a></p>"
+            f"- Releases: <a href='{GITHUB_RELEASES_URL}'>{GITHUB_RELEASES_URL}</a><br>"
+            f"- CI workflow artifacts: <a href='{GITHUB_ACTIONS_RUNS_URL}'>{GITHUB_ACTIONS_RUNS_URL}</a></p>"
             "<p>If this saves you hours, grab me a ☕.</p>"
             "<p><b>Support links</b><br>"
             f"- Buy Me a Coffee: <a href='{BUY_ME_A_COFFEE_URL}'>{BUY_ME_A_COFFEE_URL}</a><br>"

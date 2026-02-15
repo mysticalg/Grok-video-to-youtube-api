@@ -1,4 +1,4 @@
-# Grok Video Desktop Studio (Windows GUI) — **Beta**
+# Grok Video Studio (Windows/macOS desktop + Android companion) — **Beta**
 
 **Version:** `1.0.0`
 
@@ -32,9 +32,19 @@ A desktop-first Python/PySide6 app for generating Grok videos, iterating quickly
 If you just want to run the app on Windows, download the prebuilt zip here:
 
 - **Releases:** https://github.com/mysticalg/Grok-video-to-youtube-api/releases
-- **Latest CI builds (workflow runs):** https://github.com/mysticalg/Grok-video-to-youtube-api/actions/workflows/windows-build-release.yml
+- **Latest CI builds (all workflow runs):** https://github.com/mysticalg/Grok-video-to-youtube-api/actions
 
-Look for `GrokVideoDesktopStudio-windows-x64.zip`.
+Look for:
+- `GrokVideoDesktopStudio-windows-x64.zip`
+- `GrokVideoDesktopStudio-macos-universal2.zip`
+- `GrokVideoDesktopStudio-android-play-aab`
+
+
+## Platform support
+
+- **Windows desktop app:** packaged with PyInstaller.
+- **macOS desktop app:** packaged with PyInstaller (`.app` zipped artifact).
+- **Android companion app:** native WebView wrapper that opens `https://grok.com/imagine`, built as a signed **AAB** for Google Play upload.
 
 ## Quick start
 
@@ -115,22 +125,33 @@ Also supported via:
 - PayPal: https://www.paypal.com/paypalme/dhookster
 - Crypto (SOL): `6HiqW3jeF3ymxjK5Fcm6dHi46gDuFmeCeSNdW99CfJjp`
 
-## Build Windows binaries on GitHub
+## Build distributables on GitHub
 
-This repository includes a GitHub Actions workflow at `.github/workflows/windows-build-release.yml`.
+This repository now includes:
 
-- On push to `main`, it builds a Windows executable with PyInstaller and uploads a workflow artifact.
-- On tags that start with `v` (for example `v1.0.1`), it also uploads the same `.zip` to a GitHub Release.
+- `.github/workflows/windows-build-release.yml` (Windows desktop zip)
+- `.github/workflows/macos-build-release.yml` (macOS desktop app zip)
+- `.github/workflows/android-build-release.yml` (Android signed `.aab` for Play Store upload)
 
-To enable this in your fork/remote:
+Behavior:
 
-1. Ensure your repository has this workflow committed.
-2. Push to GitHub.
-3. Create and push a version tag:
+- On push to `main`, workflows build platform artifacts and upload them to Actions artifacts.
+- On tags that start with `v` (for example `v1.0.1`), workflows also attach the artifacts to a GitHub Release.
+
+### Android Play Store signing secrets
+
+Set these repository secrets for the Android workflow:
+
+- `ANDROID_SIGNING_KEY_BASE64` (base64-encoded upload keystore file)
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Once set, the workflow outputs a signed `app-release.aab` that can be uploaded directly to Google Play Console.
+
+To create and push a release tag:
 
 ```bash
 git tag v1.0.1
 git push origin v1.0.1
 ```
-
-Then download `GrokVideoDesktopStudio-windows-x64.zip` from Actions artifacts or the tagged Release.
