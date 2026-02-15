@@ -15,6 +15,9 @@ A desktop-first Python/PyQt app for generating Grok videos, iterating quickly in
 - Preview generated or local videos inside the app.
 - Continue from the latest frame or a local seed image.
 - Stitch all listed videos into one final output, with optional crossfade blending between clips.
+- Optionally add local MP3/WAV background music while stitching, with mute/volume control for original clip audio.
+- Custom music automatically trims equally from the beginning/end when it is longer than the stitched video.
+- Configurable stitched-audio fade-in/fade-out (default: 0.5s).
 - Optional stitched-output enhancements:
   - Frame interpolation (24 → 48 fps or 60 fps) for smoother motion.
   - AI-style 2x upscaling (Lanczos, capped at 4K output).
@@ -85,8 +88,13 @@ python app.py
 
 - Manual prompt mode runs against the embedded `grok.com/imagine` browser session (no xAI API generation call).
 - Downloaded videos are saved under `downloads/`.
-- Last-frame extraction, video stitching, interpolation, and upscaling require `ffmpeg` in `PATH`.
+- Last-frame extraction, video stitching, interpolation, upscaling, and custom music mixing require `ffmpeg` in `PATH`.
 - YouTube upload requires `client_secret.json` (token saved to `youtube_token.json`).
+
+## Legal
+
+- [Terms of Service](TERMS_OF_SERVICE.md)
+- [Privacy Policy](PRIVACY_POLICY.md)
 
 ## Support this project ☕
 

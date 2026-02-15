@@ -347,6 +347,11 @@ class StitchWorker(QThread):
         upscale_enabled: bool,
         upscale_target: str,
         use_gpu_encoding: bool,
+        custom_music_file: Path | None,
+        mute_original_audio: bool,
+        original_audio_volume: float,
+        music_volume: float,
+        audio_fade_duration: float,
     ):
         super().__init__()
         self.window = window
@@ -360,6 +365,11 @@ class StitchWorker(QThread):
         self.upscale_enabled = upscale_enabled
         self.upscale_target = upscale_target
         self.use_gpu_encoding = use_gpu_encoding
+        self.custom_music_file = custom_music_file
+        self.mute_original_audio = mute_original_audio
+        self.original_audio_volume = original_audio_volume
+        self.music_volume = music_volume
+        self.audio_fade_duration = audio_fade_duration
 
     def run(self) -> None:
         enhancement_enabled = self.interpolate_enabled or self.upscale_enabled
@@ -399,6 +409,24 @@ class StitchWorker(QThread):
                     upscale=self.upscale_enabled,
                     upscale_target=self.upscale_target,
                     progress_callback=lambda p: self.progress.emit(max(75, int(75 + (p * 0.25))), "Applying interpolation/upscaling..."),
+                    use_gpu_encoding=self.use_gpu_encoding,
+                )
+
+            if self.custom_music_file is not None and self.custom_music_file.exists():
+                self.status.emit(
+                    "Adding custom music track with "
+                    f"video audio {'muted' if self.mute_original_audio else f'at {self.original_audio_volume:.0f}%'} "
+                    f"and fade in/out {self.audio_fade_duration:.1f}s."
+                )
+                self.window._apply_custom_music_track(
+                    input_file=self.output_file,
+                    output_file=self.output_file,
+                    music_file=self.custom_music_file,
+                    mute_original_audio=self.mute_original_audio,
+                    original_audio_volume=self.original_audio_volume,
+                    music_volume=self.music_volume,
+                    fade_duration=self.audio_fade_duration,
+                    progress_callback=lambda p: self.progress.emit(max(92, int(92 + (p * 0.08))), "Mixing custom music..."),
                     use_gpu_encoding=self.use_gpu_encoding,
                 )
 
@@ -506,6 +534,7 @@ class MainWindow(QMainWindow):
         self.last_extracted_frame_path: Path | None = None
         self.preview_muted = False
         self.preview_volume = 100
+        self.custom_music_file: Path | None = None
         self._build_ui()
         self._load_startup_preferences()
         self._apply_space_age_theme()
@@ -735,6 +764,56 @@ class MainWindow(QMainWindow):
         self.video_options_dropdown.currentIndexChanged.connect(self._on_video_options_selected)
         actions_layout.addWidget(self.video_options_dropdown, 4, 1, 1, 1, alignment=Qt.AlignRight)
 
+        self.music_file_label = QLabel("Music: none selected")
+        self.music_file_label.setStyleSheet("color: #9fb3c8;")
+        self.music_file_label.setWordWrap(True)
+        actions_layout.addWidget(self.music_file_label, 8, 0, 1, 2)
+
+        music_actions_layout = QHBoxLayout()
+        self.choose_music_btn = QPushButton("🎵 Choose Music (wav/mp3)")
+        self.choose_music_btn.setToolTip("Select a local WAV or MP3 file to mix under the stitched video.")
+        self.choose_music_btn.clicked.connect(self._choose_custom_music_file)
+        music_actions_layout.addWidget(self.choose_music_btn)
+
+        self.clear_music_btn = QPushButton("Clear Music")
+        self.clear_music_btn.setToolTip("Remove any selected custom background music file.")
+        self.clear_music_btn.clicked.connect(self._clear_custom_music_file)
+        music_actions_layout.addWidget(self.clear_music_btn)
+        actions_layout.addLayout(music_actions_layout, 9, 0, 1, 2)
+
+        self.stitch_mute_original_checkbox = QCheckBox("Mute original video audio when music is used")
+        self.stitch_mute_original_checkbox.setToolTip("If enabled, only the selected music is audible in the stitched output.")
+        actions_layout.addWidget(self.stitch_mute_original_checkbox, 10, 0, 1, 2)
+
+        self.stitch_original_audio_volume = QSpinBox()
+        self.stitch_original_audio_volume.setRange(0, 200)
+        self.stitch_original_audio_volume.setValue(100)
+        self.stitch_original_audio_volume.setPrefix("Original audio: ")
+        self.stitch_original_audio_volume.setSuffix("%")
+        self.stitch_original_audio_volume.setToolTip("Original video audio level used during custom music mixing.")
+        actions_layout.addWidget(self.stitch_original_audio_volume, 11, 0)
+
+        self.stitch_music_volume = QSpinBox()
+        self.stitch_music_volume.setRange(0, 200)
+        self.stitch_music_volume.setValue(100)
+        self.stitch_music_volume.setPrefix("Music audio: ")
+        self.stitch_music_volume.setSuffix("%")
+        self.stitch_music_volume.setToolTip("Custom music level used during stitched output mixing.")
+        actions_layout.addWidget(self.stitch_music_volume, 11, 1)
+
+        self.stitch_audio_fade_duration = QDoubleSpinBox()
+        self.stitch_audio_fade_duration.setRange(0.0, 10.0)
+        self.stitch_audio_fade_duration.setSingleStep(0.1)
+        self.stitch_audio_fade_duration.setDecimals(1)
+        self.stitch_audio_fade_duration.setValue(0.5)
+        self.stitch_audio_fade_duration.setSuffix(" s")
+        self.stitch_audio_fade_duration.setToolTip("Fade-in and fade-out duration applied to stitched output audio mix.")
+        actions_layout.addWidget(self.stitch_audio_fade_duration, 12, 0)
+
+        self.stitch_audio_fade_label = QLabel("Audio fade in/out")
+        self.stitch_audio_fade_label.setStyleSheet("color: #9fb3c8;")
+        actions_layout.addWidget(self.stitch_audio_fade_label, 12, 1)
+
         upload_group = QGroupBox("Upload")
         upload_layout = QHBoxLayout(upload_group)
 
@@ -765,7 +844,7 @@ class MainWindow(QMainWindow):
         self.upload_instagram_btn.clicked.connect(self.upload_selected_to_instagram)
         upload_layout.addWidget(self.upload_instagram_btn)
 
-        actions_layout.addWidget(upload_group, 9, 0, 1, 2)
+        actions_layout.addWidget(upload_group, 13, 0, 1, 2)
 
         self.buy_coffee_btn = QPushButton("☕ Buy Me a Coffee")
         self.buy_coffee_btn.setToolTip("If this saves you hours, grab me a ☕")
@@ -774,7 +853,7 @@ class MainWindow(QMainWindow):
             "background-color: #ffdd00; color: #222; border-radius: 8px;"
         )
         self.buy_coffee_btn.clicked.connect(self.open_buy_me_a_coffee)
-        actions_layout.addWidget(self.buy_coffee_btn, 10, 0, 1, 2)
+        actions_layout.addWidget(self.buy_coffee_btn, 14, 0, 1, 2)
 
         left_layout.addWidget(actions_group)
 
@@ -1137,6 +1216,30 @@ class MainWindow(QMainWindow):
         self.model_api_settings_dialog.raise_()
         self.model_api_settings_dialog.activateWindow()
 
+    def _choose_custom_music_file(self) -> None:
+        music_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select background music",
+            str(self.download_dir),
+            "Audio Files (*.mp3 *.wav)",
+        )
+        if not music_path:
+            return
+
+        selected_path = Path(music_path)
+        if not selected_path.exists():
+            QMessageBox.warning(self, "Music Missing", "Selected music file was not found on disk.")
+            return
+
+        self.custom_music_file = selected_path
+        self.music_file_label.setText(f"Music: {selected_path.name}")
+        self._append_log(f"Selected custom stitch music: {selected_path}")
+
+    def _clear_custom_music_file(self) -> None:
+        self.custom_music_file = None
+        self.music_file_label.setText("Music: none selected")
+        self._append_log("Cleared custom stitch music selection.")
+
     def _choose_download_path(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Choose Download Folder", str(self.download_dir))
         if not path:
@@ -1192,6 +1295,11 @@ class MainWindow(QMainWindow):
             "stitch_upscale_enabled": self.stitch_upscale_checkbox.isChecked(),
             "stitch_upscale_target": str(self.stitch_upscale_target.currentData()),
             "stitch_gpu_enabled": self.stitch_gpu_checkbox.isChecked(),
+            "stitch_mute_original_audio": self.stitch_mute_original_checkbox.isChecked(),
+            "stitch_original_audio_volume": self.stitch_original_audio_volume.value(),
+            "stitch_music_volume": self.stitch_music_volume.value(),
+            "stitch_audio_fade_duration": self.stitch_audio_fade_duration.value(),
+            "stitch_custom_music_file": str(self.custom_music_file) if self.custom_music_file else "",
             "crossfade_duration": self.crossfade_duration.value(),
             "download_dir": str(self.download_dir),
             "preview_muted": self.preview_mute_checkbox.isChecked(),
@@ -1257,6 +1365,31 @@ class MainWindow(QMainWindow):
                 self.stitch_upscale_target.setCurrentIndex(target_index)
         if "stitch_gpu_enabled" in preferences:
             self.stitch_gpu_checkbox.setChecked(bool(preferences["stitch_gpu_enabled"]))
+        if "stitch_mute_original_audio" in preferences:
+            self.stitch_mute_original_checkbox.setChecked(bool(preferences["stitch_mute_original_audio"]))
+        if "stitch_original_audio_volume" in preferences:
+            try:
+                self.stitch_original_audio_volume.setValue(int(preferences["stitch_original_audio_volume"]))
+            except (TypeError, ValueError):
+                pass
+        if "stitch_music_volume" in preferences:
+            try:
+                self.stitch_music_volume.setValue(int(preferences["stitch_music_volume"]))
+            except (TypeError, ValueError):
+                pass
+        if "stitch_audio_fade_duration" in preferences:
+            try:
+                self.stitch_audio_fade_duration.setValue(float(preferences["stitch_audio_fade_duration"]))
+            except (TypeError, ValueError):
+                pass
+        if "stitch_custom_music_file" in preferences:
+            music_candidate = Path(str(preferences["stitch_custom_music_file"]))
+            if str(preferences["stitch_custom_music_file"]).strip() and music_candidate.exists():
+                self.custom_music_file = music_candidate
+                self.music_file_label.setText(f"Music: {music_candidate.name}")
+            else:
+                self.custom_music_file = None
+                self.music_file_label.setText("Music: none selected")
         if "crossfade_duration" in preferences:
             try:
                 self.crossfade_duration.setValue(float(preferences["crossfade_duration"]))
@@ -3587,6 +3720,11 @@ class MainWindow(QMainWindow):
         crossfade_enabled = self.stitch_crossfade_checkbox.isChecked()
         gpu_requested = self.stitch_gpu_checkbox.isChecked()
         gpu_enabled = gpu_requested and self._ffmpeg_supports_nvenc()
+        custom_music_file = self.custom_music_file
+        mute_original_audio = self.stitch_mute_original_checkbox.isChecked()
+        original_audio_volume = float(self.stitch_original_audio_volume.value()) / 100.0
+        music_volume = float(self.stitch_music_volume.value()) / 100.0
+        audio_fade_duration = self.stitch_audio_fade_duration.value()
         if gpu_requested and not gpu_enabled:
             self._append_log("GPU encoding requested, but ffmpeg NVENC is unavailable. Falling back to CPU encoding.")
 
@@ -3596,6 +3734,7 @@ class MainWindow(QMainWindow):
             + f" | Interpolation: {f'{interpolation_fps} fps' if interpolate_enabled else 'off'}"
             + f" | Upscaling: {upscale_target if upscale_enabled else 'off'}"
             + f" | Encode: {'GPU' if gpu_enabled else 'CPU'}"
+            + (f" | Music: {custom_music_file.name}" if custom_music_file else " | Music: off")
         )
 
         started_at = time.time()
@@ -3643,6 +3782,11 @@ class MainWindow(QMainWindow):
             upscale_enabled=upscale_enabled,
             upscale_target=upscale_target,
             use_gpu_encoding=gpu_enabled,
+            custom_music_file=custom_music_file,
+            mute_original_audio=mute_original_audio,
+            original_audio_volume=original_audio_volume,
+            music_volume=music_volume,
+            audio_fade_duration=audio_fade_duration,
         )
         self.stitch_worker.progress.connect(update_progress)
         self.stitch_worker.status.connect(self._append_log)
@@ -3968,6 +4112,87 @@ class MainWindow(QMainWindow):
             total_duration=self._probe_video_duration(input_file),
             progress_callback=progress_callback,
         )
+
+    def _apply_custom_music_track(
+        self,
+        input_file: Path,
+        output_file: Path,
+        music_file: Path,
+        mute_original_audio: bool,
+        original_audio_volume: float,
+        music_volume: float,
+        fade_duration: float,
+        progress_callback: Callable[[float], None] | None = None,
+        use_gpu_encoding: bool = False,
+    ) -> None:
+        temp_output = self.download_dir / f"stitch_music_{int(time.time() * 1000)}.mp4"
+        video_duration = self._probe_video_duration(input_file)
+        music_duration = self._probe_video_duration(music_file)
+
+        clamped_original_volume = max(0.0, min(2.0, original_audio_volume))
+        clamped_music_volume = max(0.0, min(2.0, music_volume))
+        clamped_fade = max(0.0, min(float(fade_duration), max(0.0, video_duration / 2.0)))
+
+        trim_start = 0.0
+        trim_duration = video_duration
+        if music_duration > video_duration:
+            extra = music_duration - video_duration
+            trim_start = extra / 2.0
+            trim_duration = video_duration
+
+        has_original_audio = self._video_has_audio_stream(input_file)
+        music_chain = (
+            f"[1:a]atrim=start={trim_start:.6f}:duration={trim_duration:.6f},asetpts=PTS-STARTPTS,"
+            f"aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,"
+            f"volume={clamped_music_volume:.3f}[music]"
+        )
+
+        filter_parts: list[str] = [music_chain]
+        audio_output_label = "music"
+
+        if has_original_audio and not mute_original_audio:
+            filter_parts.append(
+                f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,"
+                f"volume={clamped_original_volume:.3f}[orig]"
+            )
+            filter_parts.append("[orig][music]amix=inputs=2:duration=first:dropout_transition=0[audmix]")
+            audio_output_label = "audmix"
+
+        if clamped_fade > 0.0:
+            fade_out_start = max(0.0, video_duration - clamped_fade)
+            filter_parts.append(
+                f"[{audio_output_label}]afade=t=in:st=0:d={clamped_fade:.3f},"
+                f"afade=t=out:st={fade_out_start:.3f}:d={clamped_fade:.3f}[audfinal]"
+            )
+            audio_output_label = "audfinal"
+
+        command = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_file),
+            "-i",
+            str(music_file),
+            "-filter_complex",
+            ";".join(filter_parts),
+            "-map",
+            "0:v",
+            "-map",
+            f"[{audio_output_label}]",
+            *self._video_encoder_args(use_gpu_encoding),
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(temp_output),
+        ]
+
+        self._run_ffmpeg_with_progress(
+            command,
+            total_duration=video_duration,
+            progress_callback=progress_callback,
+        )
+
+        temp_output.replace(output_file)
 
     def upload_selected_to_youtube(self) -> None:
         index = self.video_picker.currentIndex()
