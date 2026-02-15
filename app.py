@@ -2026,7 +2026,7 @@ class MainWindow(QMainWindow):
                             const ariaSelected = target.getAttribute("aria-selected") === "true";
                             const dataState = (target.getAttribute("data-state") || "").toLowerCase() === "checked";
                             const dataSelected = target.getAttribute("data-selected") === "true";
-                            const classSelected = /\b(active|selected|checked|on)\b/i.test(target.className || "");
+                            const classSelected = /\b(active|selected|checked|on|text-primary|font-semibold|text-fg-primary)\b/i.test(target.className || "");
                             const checkedInput = !!target.querySelector("input[type='radio']:checked, input[type='checkbox']:checked");
                             return ariaPressed || ariaSelected || dataState || dataSelected || checkedInput || classSelected;
                         });
@@ -2083,10 +2083,11 @@ class MainWindow(QMainWindow):
                         if (!button) return false;
                         const ariaPressed = button.getAttribute("aria-pressed") === "true";
                         const ariaSelected = button.getAttribute("aria-selected") === "true";
+                        const ariaChecked = button.getAttribute("aria-checked") === "true";
                         const dataSelected = button.getAttribute("data-selected") === "true";
                         const dataState = (button.getAttribute("data-state") || "").toLowerCase();
-                        if (ariaPressed || ariaSelected || dataSelected || dataState === "checked" || dataState === "active") return true;
-                        if (/\b(active|selected|checked|on|text-fg-primary)\b/i.test(button.className || "")) return true;
+                        if (ariaPressed || ariaSelected || ariaChecked || dataSelected || dataState === "checked" || dataState === "active") return true;
+                        if (/\b(active|selected|checked|on|text-fg-primary|text-primary|font-semibold)\b/i.test(button.className || "")) return true;
                         const selectedFill = button.querySelector(".bg-primary:not([class*='bg-primary/'])");
                         return !!selectedFill;
                     };
@@ -2756,7 +2757,7 @@ class MainWindow(QMainWindow):
                             const ariaSelected = target.getAttribute("aria-selected") === "true";
                             const dataState = (target.getAttribute("data-state") || "").toLowerCase() === "checked";
                             const dataSelected = target.getAttribute("data-selected") === "true";
-                            const classSelected = /\b(active|selected|checked|on)\b/i.test(target.className || "");
+                            const classSelected = /\b(active|selected|checked|on|text-primary|font-semibold|text-fg-primary)\b/i.test(target.className || "");
                             const checkedInput = !!target.querySelector("input[type='radio']:checked, input[type='checkbox']:checked");
                             return ariaPressed || ariaSelected || dataState || dataSelected || checkedInput || classSelected;
                         });
@@ -2810,10 +2811,11 @@ class MainWindow(QMainWindow):
                         if (!button) return false;
                         const ariaPressed = button.getAttribute("aria-pressed") === "true";
                         const ariaSelected = button.getAttribute("aria-selected") === "true";
+                        const ariaChecked = button.getAttribute("aria-checked") === "true";
                         const dataSelected = button.getAttribute("data-selected") === "true";
                         const dataState = (button.getAttribute("data-state") || "").toLowerCase();
-                        if (ariaPressed || ariaSelected || dataSelected || dataState === "checked" || dataState === "active") return true;
-                        if (/\b(active|selected|checked|on|text-fg-primary)\b/i.test(button.className || "")) return true;
+                        if (ariaPressed || ariaSelected || ariaChecked || dataSelected || dataState === "checked" || dataState === "active") return true;
+                        if (/\b(active|selected|checked|on|text-fg-primary|text-primary|font-semibold)\b/i.test(button.className || "")) return true;
                         const selectedFill = button.querySelector(".bg-primary:not([class*='bg-primary/'])");
                         return !!selectedFill;
                     };
