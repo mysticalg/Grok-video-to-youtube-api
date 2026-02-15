@@ -2006,7 +2006,7 @@ class MainWindow(QMainWindow):
                 try {
                     const desiredAspect = "{selected_aspect_ratio}";
                     const isVisible = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-                    const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label, span, div";
+                    const interactiveSelector = "button, [role='button'], [role='tab'], [role='option'], [role='menuitemradio'], [role='radio'], label";
                     const textOf = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
                     const clickableAncestor = (el) => {
                         if (!el) return null;
@@ -2042,7 +2042,8 @@ class MainWindow(QMainWindow):
                         return true;
                     };
 
-                    const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(text));
+                    const normalizeText = (value) => (value || "").replace(/\s+/g, " ").trim();
+                    const matchesAny = (text, patterns) => patterns.some((pattern) => pattern.test(normalizeText(text)));
                     const clickByText = (patterns, root = document) => {
                         const candidate = visibleTextElements(root).find((el) => matchesAny(textOf(el), patterns));
                         const target = clickableAncestor(candidate);
@@ -2766,14 +2767,24 @@ class MainWindow(QMainWindow):
                     };
 
                     const clickByText = (patterns, root = document) => {
-                        const candidate = visibleTextElements(root).find((el) => matchesAny((el.textContent || "").trim(), patterns));
+                        const exactCandidate = visibleTextElements(root).find((el) => patterns.some((pattern) => {
+                            const source = pattern && typeof pattern.source === "string" ? pattern.source : "";
+                            const exact = source.replace(/^\^/, "").replace(/\$$/, "");
+                            return exact && new RegExp(`^${exact}$`, pattern.flags).test(normalizeText(el.textContent || ""));
+                        }));
+                        const candidate = exactCandidate || visibleTextElements(root).find((el) => matchesAny(el.textContent || "", patterns));
                         const target = clickableAncestor(candidate);
                         if (!target) return false;
                         return emulateClick(target);
                     };
 
                     const hasSelectedByText = (patterns, root = document) => selectedTextElements(root)
-                        .some((el) => matchesAny((el.textContent || "").trim(), patterns));
+                        .some((el) => {
+                            const target = clickableAncestor(el);
+                            if (!target) return false;
+                            const targetText = normalizeText(target.textContent || "");
+                            return matchesAny(targetText, patterns);
+                        });
 
                     const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], textarea[aria-label*='Make a video' i], input[aria-label*='Make a video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i], [contenteditable='true'][aria-label*='Type to customize this video' i], [contenteditable='true'][data-placeholder*='Type to customize this video' i], [contenteditable='true'][aria-label*='Type to customize video' i], [contenteditable='true'][data-placeholder*='Type to customize video' i], [contenteditable='true'][aria-label*='Make a video' i], [contenteditable='true'][data-placeholder*='Customize video' i]");
                     const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
