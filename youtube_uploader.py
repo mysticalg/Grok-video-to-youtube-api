@@ -33,6 +33,11 @@ def upload_video_to_youtube(
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
+            if not client_secret_file:
+                raise RuntimeError(
+                    "YouTube OAuth refresh/login required, but client_secret.json was not provided. "
+                    "Add client_secret.json or sign in once to generate youtube_token.json."
+                )
             flow = InstalledAppFlow.from_client_secrets_file(client_secret_file, SCOPES)
             creds = flow.run_local_server(port=0)
         token_path.write_text(creds.to_json())

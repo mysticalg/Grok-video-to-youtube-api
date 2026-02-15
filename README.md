@@ -117,7 +117,7 @@ python app.py
 
 ## Upload requirements
 
-- **YouTube:** requires `client_secret.json` (token stored in `youtube_token.json` after OAuth).
+- **YouTube:** uses OAuth. You can upload with an existing `youtube_token.json`; `client_secret.json` is only needed for first-time OAuth sign-in/token renewal when no valid token is available.
 - **Facebook:** requires Graph API credentials configured via environment/settings used by the uploader workflow.
 - **Instagram Reels:** requires Meta Graph API credentials and a publicly accessible HTTP(S) video URL.
 

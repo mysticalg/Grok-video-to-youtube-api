@@ -4925,10 +4925,16 @@ class MainWindow(QMainWindow):
         if not accepted:
             return
 
-        client_secret_file = str(BASE_DIR / "client_secret.json")
+        client_secret_path = BASE_DIR / "client_secret.json"
+        client_secret_file = str(client_secret_path) if client_secret_path.exists() else ""
         token_file = str(BASE_DIR / "youtube_token.json")
-        if not Path(client_secret_file).exists():
-            QMessageBox.critical(self, "Missing client_secret.json", f"Expected: {client_secret_file}")
+        if not client_secret_file and not Path(token_file).exists():
+            QMessageBox.critical(
+                self,
+                "Missing YouTube OAuth credentials",
+                "No youtube_token.json found and client_secret.json is missing. "
+                "Provide one of them to upload via YouTube OAuth.",
+            )
             return
 
         self._start_upload(
