@@ -504,6 +504,7 @@ class MainWindow(QMainWindow):
         self.preview_muted = False
         self.preview_volume = 100
         self._build_ui()
+        self._load_startup_preferences()
         self._apply_space_age_theme()
 
     def _apply_space_age_theme(self) -> None:
@@ -1006,10 +1007,14 @@ class MainWindow(QMainWindow):
 
         dialog_layout.addLayout(form_layout)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        button_box.rejected.connect(self.model_api_settings_dialog.reject)
-        button_box.accepted.connect(self.model_api_settings_dialog.accept)
-        button_box.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.model_api_settings_dialog.close)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Close)
+        save_btn = button_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn is not None:
+            save_btn.setText("Save Settings")
+            save_btn.clicked.connect(self.save_model_api_settings)
+        close_btn = button_box.button(QDialogButtonBox.StandardButton.Close)
+        if close_btn is not None:
+            close_btn.clicked.connect(self.model_api_settings_dialog.close)
         dialog_layout.addWidget(button_box)
 
     def _build_menu_bar(self) -> None:
@@ -1249,6 +1254,45 @@ class MainWindow(QMainWindow):
 
         self._toggle_prompt_source_fields()
 
+    def _save_preferences_to_path(self, file_path: Path, *, show_feedback: bool = False) -> bool:
+        try:
+            preferences = self._collect_preferences()
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as handle:
+                json.dump(preferences, handle, indent=2)
+        except Exception as exc:
+            if show_feedback:
+                QMessageBox.critical(self, "Save Preferences Failed", str(exc))
+            self._append_log(f"ERROR: Could not save preferences: {exc}")
+            return False
+
+        self._append_log(f"Saved preferences to: {file_path}")
+        return True
+
+    def _load_preferences_from_path(self, file_path: Path, *, show_feedback: bool = False) -> bool:
+        if not file_path.exists():
+            return False
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as handle:
+                preferences = json.load(handle)
+            self._apply_preferences(preferences)
+        except Exception as exc:
+            if show_feedback:
+                QMessageBox.critical(self, "Load Preferences Failed", str(exc))
+            self._append_log(f"ERROR: Could not load preferences: {exc}")
+            return False
+
+        self._append_log(f"Loaded preferences from: {file_path}")
+        return True
+
+    def save_model_api_settings(self) -> None:
+        if self._save_preferences_to_path(DEFAULT_PREFERENCES_FILE, show_feedback=True):
+            QMessageBox.information(self, "Settings Saved", f"Settings saved to:\n{DEFAULT_PREFERENCES_FILE}")
+
+    def _load_startup_preferences(self) -> None:
+        self._load_preferences_from_path(DEFAULT_PREFERENCES_FILE, show_feedback=False)
+
     def save_preferences(self) -> None:
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -1259,16 +1303,7 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
-        try:
-            preferences = self._collect_preferences()
-            with open(file_path, "w", encoding="utf-8") as handle:
-                json.dump(preferences, handle, indent=2)
-        except Exception as exc:
-            QMessageBox.critical(self, "Save Preferences Failed", str(exc))
-            self._append_log(f"ERROR: Could not save preferences: {exc}")
-            return
-
-        self._append_log(f"Saved preferences to: {file_path}")
+        self._save_preferences_to_path(Path(file_path), show_feedback=True)
 
     def load_preferences(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1280,16 +1315,7 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
-        try:
-            with open(file_path, "r", encoding="utf-8") as handle:
-                preferences = json.load(handle)
-            self._apply_preferences(preferences)
-        except Exception as exc:
-            QMessageBox.critical(self, "Load Preferences Failed", str(exc))
-            self._append_log(f"ERROR: Could not load preferences: {exc}")
-            return
-
-        self._append_log(f"Loaded preferences from: {file_path}")
+        self._load_preferences_from_path(Path(file_path), show_feedback=True)
 
     def _append_log(self, text: str) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
