@@ -1917,10 +1917,11 @@ class MainWindow(QMainWindow):
     def _exchange_openai_id_token_for_api_token(self, id_token: str) -> dict:
         configured = _normalize_http_url(OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT)
         oauth_direct = f"{OPENAI_OAUTH_ISSUER.rstrip('/')}/token"
+        oauth_token = f"{OPENAI_OAUTH_ISSUER.rstrip('/')}/oauth/token"
         api_fallback = f"{OPENAI_API_BASE.rstrip('/')}/auth/id_token/exchange"
 
         endpoints: list[str] = []
-        for candidate in (configured, oauth_direct, api_fallback):
+        for candidate in (configured, oauth_direct, oauth_token, api_fallback):
             candidate = candidate.strip()
             if candidate and candidate not in endpoints:
                 endpoints.append(candidate)
@@ -1935,9 +1936,9 @@ class MainWindow(QMainWindow):
                 errors.append(f"{endpoint} returned success without access_token")
                 continue
             errors.append(f"{endpoint} => {response.status_code} {response.text[:200]}")
-            if response.status_code in {404, 405}:
-                continue
-            break
+            # Keep trying all known endpoints before failing so 403/404 on one path
+            # does not prevent a successful exchange on another path.
+            continue
 
         raise RuntimeError(f"ID token exchange failed. Tried endpoints: {' | '.join(errors)}")
 
@@ -2022,8 +2023,8 @@ class MainWindow(QMainWindow):
                     token_payload = {**token_payload, **exchanged_payload}
                     self._append_log("OpenAI OAuth complete. Exchanged id_token for API token (preferred path).")
                 except Exception as exc:
-                    self._append_log(f"WARN: id_token exchange failed; falling back to OAuth access_token. {exc}")
-                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT (e.g., https://auth.openai.com/token) if your org uses a custom token exchange URL.")
+                    self._append_log(f"WARN: id_token exchange failed on all known endpoints; falling back to OAuth access_token. {exc}")
+                    self._append_log("Tip: set OPENAI_ID_TOKEN_EXCHANGE_ENDPOINT if your org provides a dedicated id_token exchange URL.")
             if not access_token:
                 access_token = str(token_payload.get("access_token", "")).strip()
 
