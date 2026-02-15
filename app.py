@@ -166,6 +166,14 @@ class PromptConfig:
     video_duration_seconds: int
 
 
+@dataclass
+class AISocialMetadata:
+    title: str
+    description: str
+    hashtags: list[str]
+    category: str
+
+
 class GenerateWorker(QThread):
     finished_video = Signal(dict)
     failed = Signal(str)
@@ -546,6 +554,12 @@ class MainWindow(QMainWindow):
         self.preview_muted = False
         self.preview_volume = 100
         self.custom_music_file: Path | None = None
+        self.ai_social_metadata = AISocialMetadata(
+            title="AI Generated Video",
+            description="",
+            hashtags=["grok", "ai", "generated-video"],
+            category="22",
+        )
         self._build_ui()
         self._load_startup_preferences()
         self._apply_default_theme()
@@ -576,6 +590,13 @@ class MainWindow(QMainWindow):
         self.manual_prompt.setPlainText(self.manual_prompt_default_input.toPlainText().strip() or DEFAULT_MANUAL_PROMPT_TEXT)
         self.manual_prompt.setMaximumHeight(110)
         prompt_group_layout.addWidget(self.manual_prompt)
+
+        self.generate_prompt_btn = QPushButton("✨ Generate Prompt + Social Metadata from Concept")
+        self.generate_prompt_btn.setToolTip(
+            "Uses selected AI provider to convert Concept into a 10-second Grok Imagine prompt and social metadata."
+        )
+        self.generate_prompt_btn.clicked.connect(self.generate_prompt_from_concept)
+        prompt_group_layout.addWidget(self.generate_prompt_btn)
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Count"))
@@ -1029,6 +1050,15 @@ class MainWindow(QMainWindow):
         self.openai_chat_model = QLineEdit(os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"))
         form_layout.addRow("OpenAI Chat Model", self.openai_chat_model)
 
+        self.ai_auth_method = QComboBox()
+        self.ai_auth_method.addItem("API key", "api_key")
+        self.ai_auth_method.addItem("Browser sign-in (preferred)", "browser")
+        form_layout.addRow("AI Authorization", self.ai_auth_method)
+
+        self.browser_auth_btn = QPushButton("Open Provider Login in Browser")
+        self.browser_auth_btn.clicked.connect(self.open_ai_provider_login)
+        form_layout.addRow("Browser Authorization", self.browser_auth_btn)
+
         self.youtube_api_key = QLineEdit()
         self.youtube_api_key.setEchoMode(QLineEdit.Password)
         self.youtube_api_key.setText(os.getenv("YOUTUBE_API_KEY", ""))
@@ -1249,6 +1279,7 @@ class MainWindow(QMainWindow):
             "prompt_source": self.prompt_source.currentData(),
             "openai_api_key": self.openai_api_key.text(),
             "openai_chat_model": self.openai_chat_model.text(),
+            "ai_auth_method": self.ai_auth_method.currentData(),
             "youtube_api_key": self.youtube_api_key.text(),
             "facebook_page_id": self.facebook_page_id.text(),
             "facebook_access_token": self.facebook_access_token.text(),
@@ -1276,6 +1307,12 @@ class MainWindow(QMainWindow):
             "download_dir": str(self.download_dir),
             "preview_muted": self.preview_mute_checkbox.isChecked(),
             "preview_volume": self.preview_volume_slider.value(),
+            "ai_social_metadata": {
+                "title": self.ai_social_metadata.title,
+                "description": self.ai_social_metadata.description,
+                "hashtags": self.ai_social_metadata.hashtags,
+                "category": self.ai_social_metadata.category,
+            },
         }
 
     def _apply_preferences(self, preferences: dict) -> None:
@@ -1296,6 +1333,10 @@ class MainWindow(QMainWindow):
             self.openai_api_key.setText(str(preferences["openai_api_key"]))
         if "openai_chat_model" in preferences:
             self.openai_chat_model.setText(str(preferences["openai_chat_model"]))
+        if "ai_auth_method" in preferences:
+            auth_index = self.ai_auth_method.findData(str(preferences["ai_auth_method"]))
+            if auth_index >= 0:
+                self.ai_auth_method.setCurrentIndex(auth_index)
         if "youtube_api_key" in preferences:
             self.youtube_api_key.setText(str(preferences["youtube_api_key"]))
         if "facebook_page_id" in preferences:
@@ -1315,6 +1356,15 @@ class MainWindow(QMainWindow):
             self.manual_prompt_default_input.setPlainText(default_prompt)
             if "manual_prompt" not in preferences:
                 self.manual_prompt.setPlainText(default_prompt)
+        if "ai_social_metadata" in preferences and isinstance(preferences["ai_social_metadata"], dict):
+            metadata = preferences["ai_social_metadata"]
+            hashtags = metadata.get("hashtags", self.ai_social_metadata.hashtags)
+            self.ai_social_metadata = AISocialMetadata(
+                title=str(metadata.get("title", self.ai_social_metadata.title)),
+                description=str(metadata.get("description", self.ai_social_metadata.description)),
+                hashtags=[str(tag).strip().lstrip("#") for tag in hashtags if str(tag).strip()],
+                category=str(metadata.get("category", self.ai_social_metadata.category)),
+            )
         if "count" in preferences:
             try:
                 self.count.setValue(int(preferences["count"]))
@@ -1675,6 +1725,96 @@ class MainWindow(QMainWindow):
         self.worker.finished_video.connect(self.on_video_finished)
         self.worker.failed.connect(self.on_generation_error)
         self.worker.start()
+
+    def open_ai_provider_login(self) -> None:
+        source = self.prompt_source.currentData()
+        if source == "openai":
+            self.browser.setUrl(QUrl("https://platform.openai.com/settings/organization/api-keys"))
+            self._append_log("Opened OpenAI platform in browser for sign-in/API key management.")
+            return
+
+        self.browser.setUrl(QUrl("https://grok.com/"))
+        self._append_log("Opened Grok in browser for sign-in.")
+
+    def _call_selected_ai(self, system: str, user: str) -> str:
+        source = self.prompt_source.currentData()
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.4,
+        }
+
+        if source == "openai":
+            openai_key = self.openai_api_key.text().strip()
+            if not openai_key:
+                raise RuntimeError("OpenAI API key is required.")
+            headers["Authorization"] = f"Bearer {openai_key}"
+            payload["model"] = self.openai_chat_model.text().strip() or "gpt-4o-mini"
+            response = requests.post(f"{OPENAI_API_BASE}/chat/completions", headers=headers, json=payload, timeout=90)
+            if not response.ok:
+                raise RuntimeError(f"OpenAI request failed: {response.status_code} {response.text[:400]}")
+            return response.json()["choices"][0]["message"]["content"].strip()
+
+        grok_key = self.api_key.text().strip()
+        if not grok_key:
+            if self.ai_auth_method.currentData() == "browser":
+                raise RuntimeError("Browser authorization selected, but API-based Grok requests still require a GROK API key.")
+            raise RuntimeError("Grok API key is required.")
+        headers["Authorization"] = f"Bearer {grok_key}"
+        payload["model"] = self.chat_model.text().strip() or "grok-3-mini"
+        response = requests.post(f"{API_BASE_URL}/chat/completions", headers=headers, json=payload, timeout=90)
+        if not response.ok:
+            raise RuntimeError(f"Grok request failed: {response.status_code} {response.text[:400]}")
+        return response.json()["choices"][0]["message"]["content"].strip()
+
+    def generate_prompt_from_concept(self) -> None:
+        concept = self.concept.toPlainText().strip()
+        source = self.prompt_source.currentData()
+        if source not in {"grok", "openai"}:
+            QMessageBox.warning(self, "AI Source Required", "Set Prompt Source to Grok API or OpenAI API.")
+            return
+        if not concept:
+            QMessageBox.warning(self, "Missing Concept", "Please enter a concept first.")
+            return
+
+        try:
+            instruction = concept + " please turn this into a detailed 10 second prompt for grok imagine"
+            system = "You are an expert prompt and social metadata generator for short-form AI videos. Return strict JSON only."
+            user = (
+                "Generate JSON with keys: manual_prompt, title, description, hashtags, category. "
+                "manual_prompt should be detailed and cinematic for a 10-second Grok Imagine clip. "
+                "title should be short and catchy. description should be 1-3 sentences. "
+                "hashtags should be an array of 5-12 hashtag strings without # prefixes. "
+                "category should be the best YouTube category id as a string (default 22 if unsure). "
+                f"Concept instruction: {instruction}"
+            )
+            raw = self._call_selected_ai(system, user)
+            parsed = json.loads(raw)
+            manual_prompt = str(parsed.get("manual_prompt", "")).strip()
+            if not manual_prompt:
+                raise RuntimeError("AI response did not include a manual_prompt.")
+
+            hashtags = parsed.get("hashtags", [])
+            cleaned_hashtags = [str(tag).strip().lstrip("#") for tag in hashtags if str(tag).strip()]
+            self.ai_social_metadata = AISocialMetadata(
+                title=str(parsed.get("title", "AI Generated Video")).strip() or "AI Generated Video",
+                description=str(parsed.get("description", "")).strip(),
+                hashtags=cleaned_hashtags or ["grok", "ai", "generated-video"],
+                category=str(parsed.get("category", "22")).strip() or "22",
+            )
+            self.manual_prompt.setPlainText(manual_prompt)
+            self._append_log(
+                "AI updated Manual Prompt and social metadata defaults "
+                f"(title/category/hashtags: {self.ai_social_metadata.title}/{self.ai_social_metadata.category}/"
+                f"{', '.join(self.ai_social_metadata.hashtags)})."
+            )
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "AI Response Error", "AI response was not valid JSON. Please retry.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Prompt Generation Failed", str(exc))
 
     def start_image_generation(self) -> None:
         self.stop_all_requested = False
@@ -4409,7 +4549,7 @@ class MainWindow(QMainWindow):
             return
 
         video_path = self.videos[index]["video_file_path"]
-        title, description, accepted = self._show_upload_dialog("YouTube")
+        title, description, hashtags, category_id, accepted = self._show_upload_dialog("YouTube")
         if not accepted:
             return
 
@@ -4428,7 +4568,8 @@ class MainWindow(QMainWindow):
                 video_path=video_path,
                 title=title,
                 description=description,
-                tags=["grok", "ai", "generated-video"],
+                tags=hashtags,
+                category_id=category_id,
                 youtube_api_key=self.youtube_api_key.text().strip(),
             )
         except Exception as exc:
@@ -4447,7 +4588,7 @@ class MainWindow(QMainWindow):
             return
 
         video_path = self.videos[index]["video_file_path"]
-        title, description, accepted = self._show_upload_dialog("Facebook")
+        title, description, hashtags, _, accepted = self._show_upload_dialog("Facebook")
         if not accepted:
             return
 
@@ -4459,7 +4600,7 @@ class MainWindow(QMainWindow):
                 access_token=self.facebook_access_token.text().strip(),
                 video_path=video_path,
                 title=title,
-                description=description,
+                description=self._compose_social_text(description, hashtags),
             )
         except Exception as exc:
             QMessageBox.critical(self, "Facebook Upload Failed", str(exc))
@@ -4487,7 +4628,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        _, caption, accepted = self._show_upload_dialog("Instagram", title_enabled=False)
+        _, caption, hashtags, _, accepted = self._show_upload_dialog("Instagram", title_enabled=False)
         if not accepted:
             return
 
@@ -4498,7 +4639,7 @@ class MainWindow(QMainWindow):
                 ig_user_id=self.instagram_business_id.text().strip(),
                 access_token=self.instagram_access_token.text().strip(),
                 video_url=source_url,
-                caption=caption,
+                caption=self._compose_social_text(caption, hashtags),
             )
         except Exception as exc:
             QMessageBox.critical(self, "Instagram Upload Failed", str(exc))
@@ -4509,7 +4650,14 @@ class MainWindow(QMainWindow):
         finally:
             self.upload_instagram_btn.setEnabled(True)
 
-    def _show_upload_dialog(self, platform_name: str, title_enabled: bool = True) -> tuple[str, str, bool]:
+    def _compose_social_text(self, base_text: str, hashtags: list[str]) -> str:
+        tag_text = " ".join(f"#{tag.lstrip('#')}" for tag in hashtags if tag.strip())
+        if not tag_text:
+            return base_text.strip()
+        combined = f"{base_text.strip()}\n\n{tag_text}" if base_text.strip() else tag_text
+        return combined.strip()
+
+    def _show_upload_dialog(self, platform_name: str, title_enabled: bool = True) -> tuple[str, str, list[str], str, bool]:
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{platform_name} Upload Details")
         dialog_layout = QVBoxLayout(dialog)
@@ -4517,13 +4665,23 @@ class MainWindow(QMainWindow):
         title_input = QLineEdit()
         if title_enabled:
             dialog_layout.addWidget(QLabel(f"{platform_name} Title"))
-            title_input.setText("AI Generated Video")
+            title_input.setText(self.ai_social_metadata.title)
             dialog_layout.addWidget(title_input)
 
         dialog_layout.addWidget(QLabel(f"{platform_name} Description / Caption"))
         description_input = QPlainTextEdit()
         description_input.setPlaceholderText("Describe this upload...")
+        description_input.setPlainText(self.ai_social_metadata.description)
         dialog_layout.addWidget(description_input)
+
+        dialog_layout.addWidget(QLabel("Hashtags (comma separated, no # needed)"))
+        hashtags_input = QLineEdit(", ".join(self.ai_social_metadata.hashtags))
+        dialog_layout.addWidget(hashtags_input)
+
+        category_input = QLineEdit(self.ai_social_metadata.category)
+        if platform_name == "YouTube":
+            dialog_layout.addWidget(QLabel("YouTube Category ID"))
+            dialog_layout.addWidget(category_input)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(dialog.accept)
@@ -4531,7 +4689,9 @@ class MainWindow(QMainWindow):
         dialog_layout.addWidget(button_box)
 
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
-        return title_input.text().strip(), description_input.toPlainText().strip(), accepted
+        hashtags = [tag.strip().lstrip("#") for tag in hashtags_input.text().split(",") if tag.strip()]
+        category_value = category_input.text().strip() if platform_name == "YouTube" else self.ai_social_metadata.category
+        return title_input.text().strip(), description_input.toPlainText().strip(), hashtags, category_value, accepted
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ def upload_video_to_youtube(
     description: str,
     tags: list[str],
     youtube_api_key: str = "",
+    category_id: str = "22",
 ) -> str:
     creds = None
     token_path = Path(token_file)
@@ -43,7 +44,7 @@ def upload_video_to_youtube(
                 "title": title,
                 "description": description,
                 "tags": tags,
-                "categoryId": "22",
+                "categoryId": str(category_id or "22"),
             },
             "status": {"privacyStatus": "private"},
         },
