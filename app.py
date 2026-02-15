@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import base64
 import hashlib
 import secrets
@@ -80,6 +81,38 @@ DEFAULT_MANUAL_PROMPT_TEXT = (
     "abstract surreal artistic photorealistic strange random dream like scifi fast moving camera, "
     "fast moving fractals morphing and intersecting, highly detailed"
 )
+
+
+def _parse_json_object_from_text(raw: str) -> dict:
+    """Parse a JSON object from a model response that may include wrappers."""
+    text = (raw or "").strip()
+    if not text:
+        raise json.JSONDecodeError("Empty AI response", raw, 0)
+
+    decoder = json.JSONDecoder()
+    try:
+        parsed, _ = decoder.raw_decode(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        candidate = fence_match.group(1)
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start : end + 1]
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+
+    raise json.JSONDecodeError("AI response did not contain a JSON object", text, 0)
 
 
 def _decode_openai_access_token(access_token: str) -> dict:
@@ -2150,7 +2183,7 @@ class MainWindow(QMainWindow):
                 f"Concept instruction: {instruction}"
             )
             raw = self._call_selected_ai(system, user)
-            parsed = json.loads(raw)
+            parsed = _parse_json_object_from_text(raw)
             manual_prompt = str(parsed.get("manual_prompt", "")).strip()
             if not manual_prompt:
                 raise RuntimeError("AI response did not include a manual_prompt.")
