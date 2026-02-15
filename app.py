@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QProgressBar,
+    QSlider,
     QSpinBox,
     QSplitter,
     QTextBrowser,
@@ -778,6 +779,11 @@ class MainWindow(QMainWindow):
         self.video_move_down_btn.clicked.connect(lambda: self.move_selected_video(1))
         video_list_controls.addWidget(self.video_move_down_btn)
 
+        self.video_remove_btn = QPushButton("🗑 Remove")
+        self.video_remove_btn.setToolTip("Remove selected video from Generated Videos list.")
+        self.video_remove_btn.clicked.connect(self.remove_selected_video)
+        video_list_controls.addWidget(self.video_remove_btn)
+
         left_layout.addLayout(video_list_controls)
 
         self.player = QMediaPlayer(self)
@@ -872,10 +878,27 @@ class MainWindow(QMainWindow):
         self.preview_volume_slider.setSuffix("%")
         self.preview_volume_slider.valueChanged.connect(self._set_preview_volume)
         preview_controls.addWidget(self.preview_volume_slider)
+
+        self.preview_fullscreen_btn = QPushButton("⛶ Fullscreen")
+        self.preview_fullscreen_btn.setToolTip("Toggle fullscreen preview.")
+        self.preview_fullscreen_btn.clicked.connect(self.toggle_preview_fullscreen)
+        preview_controls.addWidget(self.preview_fullscreen_btn)
         preview_layout.addLayout(preview_controls)
+
+        timeline_layout = QHBoxLayout()
+        self.preview_position_label = QLabel("00:00 / 00:00")
+        timeline_layout.addWidget(self.preview_position_label)
+
+        self.preview_seek_slider = QSlider(Qt.Horizontal)
+        self.preview_seek_slider.setRange(0, 0)
+        self.preview_seek_slider.sliderMoved.connect(self.seek_preview)
+        timeline_layout.addWidget(self.preview_seek_slider)
+        preview_layout.addLayout(timeline_layout)
 
         self.audio_output.setMuted(self.preview_muted)
         self.audio_output.setVolume(self.preview_volume / 100)
+        self.player.positionChanged.connect(self._on_preview_position_changed)
+        self.player.durationChanged.connect(self._on_preview_duration_changed)
 
         bottom_splitter = QSplitter()
         bottom_splitter.addWidget(preview_group)
@@ -3076,6 +3099,64 @@ class MainWindow(QMainWindow):
         self.videos[index], self.videos[target] = self.videos[target], self.videos[index]
         self._refresh_video_picker(selected_index=target)
         self._append_log(f"Reordered videos: moved item to position {target + 1}.")
+
+    def remove_selected_video(self) -> None:
+        index = self.video_picker.currentIndex()
+        if index < 0 or index >= len(self.videos):
+            return
+
+        removed = self.videos.pop(index)
+        if not self.videos:
+            self._refresh_video_picker(selected_index=-1)
+            self.player.stop()
+            self.player.setSource(QUrl())
+            self.preview_seek_slider.blockSignals(True)
+            self.preview_seek_slider.setRange(0, 0)
+            self.preview_seek_slider.setValue(0)
+            self.preview_seek_slider.blockSignals(False)
+            self.preview_position_label.setText("00:00 / 00:00")
+        else:
+            self._refresh_video_picker(selected_index=min(index, len(self.videos) - 1))
+
+        self._append_log(f"Removed video from list: {removed.get('video_file_path', 'unknown')}")
+
+    def _format_time_ms(self, ms: int) -> str:
+        total_seconds = max(0, int(ms // 1000))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def _on_preview_position_changed(self, position: int) -> None:
+        self.preview_seek_slider.blockSignals(True)
+        self.preview_seek_slider.setValue(position)
+        self.preview_seek_slider.blockSignals(False)
+        self.preview_position_label.setText(
+            f"{self._format_time_ms(position)} / {self._format_time_ms(self.player.duration())}"
+        )
+
+    def _on_preview_duration_changed(self, duration: int) -> None:
+        self.preview_seek_slider.blockSignals(True)
+        self.preview_seek_slider.setRange(0, max(0, duration))
+        self.preview_seek_slider.blockSignals(False)
+        self.preview_position_label.setText(
+            f"{self._format_time_ms(self.player.position())} / {self._format_time_ms(duration)}"
+        )
+
+    def seek_preview(self, position: int) -> None:
+        self.player.setPosition(max(0, int(position)))
+
+    def toggle_preview_fullscreen(self) -> None:
+        if self.preview.isFullScreen():
+            self.preview.setFullScreen(False)
+            self.preview_fullscreen_btn.setText("⛶ Fullscreen")
+            self._append_log("Preview exited fullscreen mode.")
+            return
+
+        self.preview.setFullScreen(True)
+        self.preview_fullscreen_btn.setText("🗗 Exit Fullscreen")
+        self._append_log("Preview entered fullscreen mode.")
 
     def on_generation_error(self, error: str) -> None:
         self._append_log(f"ERROR: {error}")
