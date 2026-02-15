@@ -273,14 +273,12 @@ def _call_openai_chat_api(access_token: str, model: str, system: str, user: str,
 
     if is_responses_api:
         content_type = response.headers.get("Content-Type", "")
-        if "text/event-stream" in content_type:
-            streamed_text = _extract_text_from_responses_sse(response.text)
-            if streamed_text:
-                return streamed_text
-        body = response.json()
-        text_value = _extract_text_from_responses_body(body)
-        if text_value:
-            return text_value
+        #if "text/event-stream" in content_type:
+        streamed_text = _extract_text_from_responses_sse(response.text)
+            
+        #if streamed_text: (it is)
+        return streamed_text
+    
         raise RuntimeError("OpenAI response did not include text output.")
 
     body = response.json()
