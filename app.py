@@ -850,8 +850,8 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.video_picker)
 
         video_list_controls = QHBoxLayout()
-        self.open_video_btn = QPushButton("📂 Open Video")
-        self.open_video_btn.setToolTip("Open a local video file and add it to Generated Videos.")
+        self.open_video_btn = QPushButton("📂 Open Video(s)")
+        self.open_video_btn.setToolTip("Open one or more local video files and add them to Generated Videos.")
         self.open_video_btn.clicked.connect(self.open_local_video)
         video_list_controls.addWidget(self.open_video_btn)
 
@@ -1128,7 +1128,7 @@ class MainWindow(QMainWindow):
         load_action.triggered.connect(self.load_preferences)
         file_menu.addAction(load_action)
 
-        open_video_action = QAction("Open Video...", self)
+        open_video_action = QAction("Open Video(s)...", self)
         open_video_action.triggered.connect(self.open_local_video)
         file_menu.addAction(open_video_action)
 
@@ -3598,30 +3598,31 @@ class MainWindow(QMainWindow):
         self._append_log(f"Saved: {video['video_file_path']}")
 
     def open_local_video(self) -> None:
-        video_path, _ = QFileDialog.getOpenFileName(
+        video_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Open Video",
+            "Open Video(s)",
             str(self.download_dir),
             "Video Files (*.mp4 *.mov *.mkv *.webm *.avi)",
         )
-        if not video_path:
+        if not video_paths:
             return
 
-        resolution = "local"
-        try:
-            info = self._probe_video_stream_info(Path(video_path))
-            resolution = f"{info['width']}x{info['height']}"
-        except Exception:
-            pass
+        for video_path in video_paths:
+            resolution = "local"
+            try:
+                info = self._probe_video_stream_info(Path(video_path))
+                resolution = f"{info['width']}x{info['height']}"
+            except Exception:
+                pass
 
-        loaded_video = {
-            "title": f"Opened: {Path(video_path).stem}",
-            "prompt": "opened-local-video",
-            "resolution": resolution,
-            "video_file_path": video_path,
-            "source_url": "local-open",
-        }
-        self.on_video_finished(loaded_video)
+            loaded_video = {
+                "title": f"Opened: {Path(video_path).stem}",
+                "prompt": "opened-local-video",
+                "resolution": resolution,
+                "video_file_path": video_path,
+                "source_url": "local-open",
+            }
+            self.on_video_finished(loaded_video)
 
     def move_selected_video(self, delta: int) -> None:
         index = self.video_picker.currentIndex()
