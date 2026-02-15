@@ -2394,7 +2394,15 @@ class MainWindow(QMainWindow):
 
             access_token = self._exchange_tiktok_oauth_code(code, redirect_uri, client_key, client_secret, verifier)
             self.tiktok_access_token.setText(access_token)
-            self._append_log("TikTok OAuth complete. Access token has been populated in TikTok Access Token.")
+            self._save_preferences_to_path(DEFAULT_PREFERENCES_FILE, show_feedback=False)
+            self._append_log(
+                "TikTok OAuth complete. Access token has been populated in TikTok Access Token and saved to preferences.json."
+            )
+            QMessageBox.information(
+                self,
+                "TikTok OAuth Complete",
+                "TikTok access token received and stored in settings. You can upload now.",
+            )
         finally:
             try:
                 server.shutdown()
