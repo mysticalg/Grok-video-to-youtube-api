@@ -166,7 +166,6 @@ class PromptConfig:
     source: str
     concept: str
     manual_prompt: str
-    openai_api_key: str
     openai_access_token: str
     openai_chat_model: str
     video_resolution: str
@@ -225,7 +224,7 @@ class GenerateWorker(QThread):
             return response.text[:500] or response.reason
 
     def _openai_bearer_token(self) -> str:
-        return self.prompt_config.openai_access_token or self.prompt_config.openai_api_key
+        return self.prompt_config.openai_access_token
 
     def call_grok_chat(self, system: str, user: str) -> str:
         headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
@@ -249,7 +248,7 @@ class GenerateWorker(QThread):
     def call_openai_chat(self, system: str, user: str) -> str:
         openai_token = self._openai_bearer_token()
         if not openai_token:
-            raise RuntimeError("OpenAI API key or access token is required.")
+            raise RuntimeError("OpenAI access token is required. Use Browser Authorization to sign in.")
         headers = {"Authorization": f"Bearer {openai_token}", "Content-Type": "application/json"}
         response = requests.post(
             f"{OPENAI_API_BASE}/chat/completions",
@@ -1060,11 +1059,6 @@ class MainWindow(QMainWindow):
         self.prompt_source.currentIndexChanged.connect(self._toggle_prompt_source_fields)
         form_layout.addRow("Prompt Source", self.prompt_source)
 
-        self.openai_api_key = QLineEdit()
-        self.openai_api_key.setEchoMode(QLineEdit.Password)
-        self.openai_api_key.setText(os.getenv("OPENAI_API_KEY", ""))
-        form_layout.addRow("OpenAI API Key", self.openai_api_key)
-
         self.openai_access_token = QLineEdit()
         self.openai_access_token.setEchoMode(QLineEdit.Password)
         self.openai_access_token.setPlaceholderText("Optional bearer token from OAuth/browser sign-in flow")
@@ -1301,7 +1295,6 @@ class MainWindow(QMainWindow):
             "chat_model": self.chat_model.text(),
             "image_model": self.image_model.text(),
             "prompt_source": self.prompt_source.currentData(),
-            "openai_api_key": self.openai_api_key.text(),
             "openai_access_token": self.openai_access_token.text(),
             "openai_chat_model": self.openai_chat_model.text(),
             "ai_auth_method": self.ai_auth_method.currentData(),
@@ -1354,8 +1347,6 @@ class MainWindow(QMainWindow):
             source_index = self.prompt_source.findData(str(preferences["prompt_source"]))
             if source_index >= 0:
                 self.prompt_source.setCurrentIndex(source_index)
-        if "openai_api_key" in preferences:
-            self.openai_api_key.setText(str(preferences["openai_api_key"]))
         if "openai_access_token" in preferences:
             self.openai_access_token.setText(str(preferences["openai_access_token"]))
         if "openai_chat_model" in preferences:
@@ -1716,11 +1707,11 @@ class MainWindow(QMainWindow):
         if source == "manual" and not manual_prompt:
             QMessageBox.warning(self, "Missing Manual Prompt", "Please enter a manual prompt.")
             return
-        if source == "openai" and not (self.openai_api_key.text().strip() or self.openai_access_token.text().strip()):
+        if source == "openai" and not self.openai_access_token.text().strip():
             QMessageBox.warning(
                 self,
                 "Missing OpenAI Credentials",
-                "Please enter an OpenAI API key or access token.",
+                "Please authorize OpenAI in browser (or paste an OpenAI access token).",
             )
             return
 
@@ -1743,7 +1734,6 @@ class MainWindow(QMainWindow):
             source=source,
             concept=concept,
             manual_prompt=manual_prompt,
-            openai_api_key=self.openai_api_key.text().strip(),
             openai_access_token=self.openai_access_token.text().strip(),
             openai_chat_model=self.openai_chat_model.text().strip() or "gpt-5.1-codex",
             video_resolution=selected_resolution,
@@ -1907,9 +1897,9 @@ class MainWindow(QMainWindow):
         }
 
         if source == "openai":
-            openai_token = self.openai_access_token.text().strip() or self.openai_api_key.text().strip()
+            openai_token = self.openai_access_token.text().strip()
             if not openai_token:
-                raise RuntimeError("OpenAI API key or access token is required.")
+                raise RuntimeError("OpenAI access token is required. Use Browser Authorization to sign in.")
             headers["Authorization"] = f"Bearer {openai_token}"
             payload["model"] = self.openai_chat_model.text().strip() or "gpt-5.1-codex"
             response = requests.post(f"{OPENAI_API_BASE}/chat/completions", headers=headers, json=payload, timeout=90)
@@ -3928,7 +3918,6 @@ class MainWindow(QMainWindow):
         is_manual = source == "manual"
         is_openai = source == "openai"
         self.manual_prompt.setEnabled(is_manual)
-        self.openai_api_key.setEnabled(is_openai)
         self.openai_access_token.setEnabled(is_openai)
         self.openai_chat_model.setEnabled(is_openai)
         self.chat_model.setEnabled(source == "grok")

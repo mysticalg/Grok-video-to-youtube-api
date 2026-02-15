@@ -72,7 +72,6 @@ python app.py
 - `GROK_CHAT_MODEL` (default: `grok-3-mini`)
 - `GROK_VIDEO_MODEL` (default: `grok-video-latest`)
 - `XAI_API_BASE` (default: `https://api.x.ai/v1`)
-- `OPENAI_API_KEY`
 - `OPENAI_ACCESS_TOKEN` (optional bearer token from browser/OAuth-style sign-in)
 - `OPENAI_CHAT_MODEL` (default: `gpt-5.1-codex`)
 - `OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
@@ -90,12 +89,11 @@ python app.py
 
 ## OpenAI auth options
 
-For OpenAI prompt generation, the app now accepts either:
+For OpenAI prompt generation, the app now uses OAuth access tokens.
 
-- `OPENAI_API_KEY` (standard), or
-- `OPENAI_ACCESS_TOKEN` (paste a bearer token obtained via your own browser authorization flow).
+- `OPENAI_ACCESS_TOKEN` (optional pre-seeded bearer token; normally auto-filled by browser authorization).
 
-In **Model/API Settings**, set Prompt Source to **OpenAI API**, then either provide API key or access token.
+In **Model/API Settings**, set Prompt Source to **OpenAI API**, then run Browser Authorization (or paste an access token).
 Use **Open Provider Login in Browser** to run a full OAuth code+PKCE flow (Codex-style) in your system browser. On success, the app auto-fills **OpenAI Access Token**.
 
 ## Browser performance tuning (embedded Chromium)
