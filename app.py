@@ -487,6 +487,9 @@ class FilteredWebEnginePage(QWebEnginePage):
         "Permissions-Policy header: Unrecognized feature: 'pointer-lock'",
         "violates the following Content Security Policy directive",
         "Play failed: [object DOMException]",
+        "[Statsig] A networking error occurred during POST request",
+        "featureassets.org/v1/initialize",
+        "auth-cdn.oaistatic.com/assets/statsig",
     )
 
     def __init__(self, on_console_message, profile: QWebEngineProfile | None = None, parent=None):
@@ -1753,6 +1756,9 @@ class MainWindow(QMainWindow):
             self.browser.setUrl(QUrl("https://auth.openai.com/"))
             self._append_log(
                 "Opened auth.openai.com in browser for app authorization. After approval, paste the bearer token into OpenAI Access Token."
+            )
+            self._append_log(
+                "Note: occasional Statsig network warnings from auth.openai.com are third-party telemetry noise and can be ignored."
             )
             return
 
