@@ -2069,9 +2069,15 @@ class MainWindow(QMainWindow):
                     const optionsRequested = [];
                     const optionsApplied = [];
 
+                    const normalizeAriaLabel = (value) => (value || "").toLowerCase().replace(/\s+/g, "").trim();
                     const findVisibleButtonByAriaLabel = (ariaLabel, root = document) => {
-                        const candidates = [...root.querySelectorAll(`button[aria-label='${ariaLabel}']`)];
-                        return candidates.find((el) => isVisible(el) && !el.disabled) || null;
+                        const desired = normalizeAriaLabel(ariaLabel);
+                        if (!desired) return null;
+                        const candidates = [...root.querySelectorAll("button[aria-label]")].filter((el) => isVisible(el) && !el.disabled);
+                        return candidates.find((el) => {
+                            const actual = normalizeAriaLabel(el.getAttribute("aria-label") || "");
+                            return actual === desired || actual.includes(desired);
+                        }) || null;
                     };
                     const isOptionButtonSelected = (button) => {
                         if (!button) return false;
@@ -2766,6 +2772,8 @@ class MainWindow(QMainWindow):
                         return true;
                     };
 
+                    const normalizeText = (value) => (value || "").replace(/\s+/g, " ").trim();
+
                     const clickByText = (patterns, root = document) => {
                         const exactCandidate = visibleTextElements(root).find((el) => patterns.some((pattern) => {
                             const source = pattern && typeof pattern.source === "string" ? pattern.source : "";
@@ -2788,9 +2796,15 @@ class MainWindow(QMainWindow):
 
                     const promptInput = document.querySelector("textarea[placeholder*='Type to imagine' i], input[placeholder*='Type to imagine' i], textarea[placeholder*='Type to customize this video' i], input[placeholder*='Type to customize this video' i], textarea[placeholder*='Type to customize video' i], input[placeholder*='Type to customize video' i], textarea[placeholder*='Customize video' i], input[placeholder*='Customize video' i], textarea[aria-label*='Make a video' i], input[aria-label*='Make a video' i], div.tiptap.ProseMirror[contenteditable='true'], [contenteditable='true'][aria-label*='Type to imagine' i], [contenteditable='true'][data-placeholder*='Type to imagine' i], [contenteditable='true'][aria-label*='Type to customize this video' i], [contenteditable='true'][data-placeholder*='Type to customize this video' i], [contenteditable='true'][aria-label*='Type to customize video' i], [contenteditable='true'][data-placeholder*='Type to customize video' i], [contenteditable='true'][aria-label*='Make a video' i], [contenteditable='true'][data-placeholder*='Customize video' i]");
                     const composer = (promptInput && (promptInput.closest("form") || promptInput.closest("main") || promptInput.closest("section"))) || document;
+                    const normalizeAriaLabel = (value) => (value || "").toLowerCase().replace(/\s+/g, "").trim();
                     const findVisibleButtonByAriaLabel = (ariaLabel, root = document) => {
-                        const candidates = [...root.querySelectorAll(`button[aria-label='${ariaLabel}']`)];
-                        return candidates.find((el) => isVisible(el) && !el.disabled) || null;
+                        const desired = normalizeAriaLabel(ariaLabel);
+                        if (!desired) return null;
+                        const candidates = [...root.querySelectorAll("button[aria-label]")].filter((el) => isVisible(el) && !el.disabled);
+                        return candidates.find((el) => {
+                            const actual = normalizeAriaLabel(el.getAttribute("aria-label") || "");
+                            return actual === desired || actual.includes(desired);
+                        }) || null;
                     };
                     const isOptionButtonSelected = (button) => {
                         if (!button) return false;
