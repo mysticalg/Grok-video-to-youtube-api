@@ -73,6 +73,7 @@ python app.py
 - `GROK_VIDEO_MODEL` (default: `grok-video-latest`)
 - `XAI_API_BASE` (default: `https://api.x.ai/v1`)
 - `OPENAI_API_KEY`
+- `OPENAI_ACCESS_TOKEN` (optional bearer token from browser/OAuth-style sign-in)
 - `OPENAI_CHAT_MODEL` (default: `gpt-4o-mini`)
 - `OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
 
@@ -83,6 +84,15 @@ python app.py
 - `GROK_BROWSER_DISK_CACHE_BYTES` (default: `536870912`, 512 MB)
 - `GROK_BROWSER_MEDIA_CACHE_BYTES` (default: `268435456`, 256 MB)
 - `QTWEBENGINE_CHROMIUM_FLAGS` (optional additional Chromium flags)
+
+## OpenAI auth options
+
+For OpenAI prompt generation, the app now accepts either:
+
+- `OPENAI_API_KEY` (standard), or
+- `OPENAI_ACCESS_TOKEN` (paste a bearer token obtained via your own browser authorization flow).
+
+In **Model/API Settings**, set Prompt Source to **OpenAI API**, then either provide API key or access token.
 
 ## Browser performance tuning (embedded Chromium)
 
