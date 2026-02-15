@@ -78,6 +78,10 @@ FACEBOOK_OAUTH_SCOPE = os.getenv(
     "FACEBOOK_OAUTH_SCOPE",
     "pages_show_list,pages_manage_posts,pages_manage_videos,pages_read_engagement",
 )
+TIKTOK_OAUTH_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
+TIKTOK_OAUTH_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+TIKTOK_OAUTH_CALLBACK_PORT = int(os.getenv("TIKTOK_OAUTH_CALLBACK_PORT", "1457"))
+TIKTOK_OAUTH_SCOPE = os.getenv("TIKTOK_OAUTH_SCOPE", "user.info.basic,video.upload,video.publish")
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
@@ -1370,6 +1374,19 @@ class MainWindow(QMainWindow):
         self.tiktok_access_token.setText(os.getenv("TIKTOK_ACCESS_TOKEN", ""))
         form_layout.addRow("TikTok Access Token", self.tiktok_access_token)
 
+        self.tiktok_client_key = QLineEdit(os.getenv("TIKTOK_CLIENT_KEY", ""))
+        form_layout.addRow("TikTok Client Key", self.tiktok_client_key)
+
+        self.tiktok_client_secret = QLineEdit()
+        self.tiktok_client_secret.setEchoMode(QLineEdit.Password)
+        self.tiktok_client_secret.setText(os.getenv("TIKTOK_CLIENT_SECRET", ""))
+        form_layout.addRow("TikTok Client Secret", self.tiktok_client_secret)
+
+        self.tiktok_oauth_btn = QPushButton("Authorize TikTok Upload")
+        self.tiktok_oauth_btn.setToolTip("Open TikTok OAuth in browser and populate TikTok access token.")
+        self.tiktok_oauth_btn.clicked.connect(self.authorize_tiktok_upload)
+        form_layout.addRow("TikTok OAuth", self.tiktok_oauth_btn)
+
         self.tiktok_privacy_level = QComboBox()
         self.tiktok_privacy_level.addItem("Public", "PUBLIC_TO_EVERYONE")
         self.tiktok_privacy_level.addItem("Friends (mutual follow)", "MUTUAL_FOLLOW_FRIENDS")
@@ -1588,6 +1605,8 @@ class MainWindow(QMainWindow):
             "instagram_business_id": self.instagram_business_id.text(),
             "instagram_access_token": self.instagram_access_token.text(),
             "tiktok_access_token": self.tiktok_access_token.text(),
+            "tiktok_client_key": self.tiktok_client_key.text(),
+            "tiktok_client_secret": self.tiktok_client_secret.text(),
             "tiktok_privacy_level": self.tiktok_privacy_level.currentData(),
             "concept": self.concept.toPlainText(),
             "manual_prompt": self.manual_prompt.toPlainText(),
@@ -1657,6 +1676,10 @@ class MainWindow(QMainWindow):
             self.instagram_access_token.setText(str(preferences["instagram_access_token"]))
         if "tiktok_access_token" in preferences:
             self.tiktok_access_token.setText(str(preferences["tiktok_access_token"]))
+        if "tiktok_client_key" in preferences:
+            self.tiktok_client_key.setText(str(preferences["tiktok_client_key"]))
+        if "tiktok_client_secret" in preferences:
+            self.tiktok_client_secret.setText(str(preferences["tiktok_client_secret"]))
         if "tiktok_privacy_level" in preferences:
             privacy_index = self.tiktok_privacy_level.findData(str(preferences["tiktok_privacy_level"]))
             if privacy_index >= 0:
@@ -2073,7 +2096,7 @@ class MainWindow(QMainWindow):
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(
-                    b"<html><body><h2>OpenAI authorization received.</h2><p>You can close this tab and return to the app.</p></body></html>"
+                    b"<html><body><h2>Authorization received.</h2><p>You can close this tab and return to the app.</p></body></html>"
                 )
                 event.set()
 
@@ -2288,6 +2311,93 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._append_log(f"ERROR: Facebook OAuth flow failed: {exc}")
             QMessageBox.critical(self, "Facebook OAuth Failed", str(exc))
+
+    def _exchange_tiktok_oauth_code(self, code: str, redirect_uri: str, client_key: str, client_secret: str) -> str:
+        response = requests.post(
+            TIKTOK_OAUTH_TOKEN_URL,
+            data={
+                "client_key": client_key,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+            },
+            timeout=60,
+        )
+        if not response.ok:
+            raise RuntimeError(f"TikTok OAuth token exchange failed: {response.status_code} {response.text[:500]}")
+
+        payload = response.json()
+        token_payload = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(token_payload, dict):
+            token_payload = payload if isinstance(payload, dict) else {}
+
+        access_token = str(token_payload.get("access_token") or "").strip()
+        if not access_token:
+            raise RuntimeError(f"TikTok OAuth token response did not include access_token: {payload}")
+        return access_token
+
+    def _run_tiktok_oauth_flow(self) -> None:
+        client_key = self.tiktok_client_key.text().strip()
+        client_secret = self.tiktok_client_secret.text().strip()
+        if not client_key:
+            raise RuntimeError("TikTok Client Key is required for OAuth.")
+        if not client_secret:
+            raise RuntimeError("TikTok Client Secret is required for OAuth.")
+
+        state = secrets.token_hex(16)
+        redirect_uri = f"http://localhost:{TIKTOK_OAUTH_CALLBACK_PORT}/auth/callback"
+        server, done_event, callback_result = self._start_oauth_callback_listener(TIKTOK_OAUTH_CALLBACK_PORT)
+
+        try:
+            authorize_url = (
+                f"{TIKTOK_OAUTH_AUTHORIZE_URL}?"
+                f"{urlencode({'client_key': client_key, 'redirect_uri': redirect_uri, 'state': state, 'response_type': 'code', 'scope': TIKTOK_OAUTH_SCOPE})}"
+            )
+
+            opened = QDesktopServices.openUrl(QUrl(authorize_url))
+            if opened:
+                self._append_log("Opened TikTok OAuth authorize URL in your system browser. Complete sign-in to continue.")
+            else:
+                raise RuntimeError("Failed to open system browser for TikTok OAuth authorization.")
+
+            timeout_s = 240
+            start = time.time()
+            while not done_event.is_set() and (time.time() - start) < timeout_s:
+                QApplication.processEvents()
+                time.sleep(0.1)
+
+            if not done_event.is_set():
+                raise TimeoutError("Timed out waiting for TikTok OAuth callback.")
+
+            if callback_result.get("error"):
+                desc = callback_result.get("error_description") or callback_result["error"]
+                raise RuntimeError(f"TikTok OAuth authorization failed: {desc}")
+
+            callback_state = callback_result.get("state", "")
+            if callback_state != state:
+                raise RuntimeError("TikTok OAuth state mismatch; please retry authorization.")
+
+            code = callback_result.get("code", "")
+            if not code:
+                raise RuntimeError("TikTok OAuth callback did not include an authorization code.")
+
+            access_token = self._exchange_tiktok_oauth_code(code, redirect_uri, client_key, client_secret)
+            self.tiktok_access_token.setText(access_token)
+            self._append_log("TikTok OAuth complete. Access token has been populated in TikTok Access Token.")
+        finally:
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception:
+                pass
+
+    def authorize_tiktok_upload(self) -> None:
+        try:
+            self._run_tiktok_oauth_flow()
+        except Exception as exc:
+            self._append_log(f"ERROR: TikTok OAuth flow failed: {exc}")
+            QMessageBox.critical(self, "TikTok OAuth Failed", str(exc))
 
     def open_ai_provider_login(self) -> None:
         source = self.prompt_source.currentData()

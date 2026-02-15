@@ -85,6 +85,10 @@ python app.py
 - `OPENAI_CHATGPT_API_BASE` (default: `https://chatgpt.com/backend-api/codex`)
 - `OPENAI_USE_CHATGPT_BACKEND` (default: `1`; routes `auth.openai.com` OAuth tokens to ChatGPT Codex backend)
 - `TIKTOK_ACCESS_TOKEN` (optional; can also be set in-app)
+- `TIKTOK_CLIENT_KEY` (optional; used by in-app TikTok OAuth helper)
+- `TIKTOK_CLIENT_SECRET` (optional; used by in-app TikTok OAuth helper)
+- `TIKTOK_OAUTH_CALLBACK_PORT` (default: `1457`)
+- `TIKTOK_OAUTH_SCOPE` (default: `user.info.basic,video.upload,video.publish`)
 - `TIKTOK_PRIVACY_LEVEL` (optional default: `PUBLIC_TO_EVERYONE`; options also include `MUTUAL_FOLLOW_FRIENDS`, `SELF_ONLY`)
 - `FACEBOOK_APP_ID` (optional; used by in-app Facebook OAuth helper)
 - `FACEBOOK_APP_SECRET` (optional; used by in-app Facebook OAuth helper)
@@ -130,7 +134,33 @@ python app.py
 - **YouTube:** uses OAuth. You can upload with an existing `youtube_token.json`; `client_secret.json` is only needed for first-time OAuth sign-in/token renewal when no valid token is available.
 - **Facebook:** uploads use Graph API. You can either paste Page ID + Page Access Token manually, or use the in-app Facebook OAuth helper to authorize and auto-populate these fields.
 - **Instagram Reels:** requires Meta Graph API credentials and a publicly accessible HTTP(S) video URL.
-- **TikTok:** requires a TikTok OAuth access token with Content Posting API permissions (`video.upload` and `video.publish`). Optional privacy level can be configured in settings.
+- **TikTok:** requires a TikTok OAuth access token with Content Posting API permissions (`video.upload` and `video.publish`). You can paste the token manually or use the in-app TikTok OAuth helper with your `client_key` + `client_secret` to authorize the current user and auto-populate the access token. Optional privacy level can be configured in settings.
+
+### TikTok: how to get a token to paste manually
+
+1. In TikTok for Developers, open your app and confirm your redirect URI exactly matches what you will use (for local testing this app defaults to `http://localhost:1457/auth/callback`).
+2. Build and open the authorize URL in your browser (replace placeholders):
+
+```text
+https://www.tiktok.com/v2/auth/authorize/?client_key=YOUR_CLIENT_KEY&response_type=code&scope=user.info.basic,video.upload,video.publish&redirect_uri=http%3A%2F%2Flocalhost%3A1457%2Fauth%2Fcallback&state=RANDOM_STRING
+```
+
+3. After you approve access, TikTok redirects to your redirect URI with `?code=...&state=...`.
+4. Exchange that code for an access token:
+
+```bash
+curl -X POST https://open.tiktokapis.com/v2/oauth/token/ \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_key=YOUR_CLIENT_KEY" \
+  -d "client_secret=YOUR_CLIENT_SECRET" \
+  -d "code=AUTH_CODE_FROM_CALLBACK" \
+  -d "grant_type=authorization_code" \
+  -d "redirect_uri=http://localhost:1457/auth/callback"
+```
+
+5. Copy `access_token` from the JSON response and paste it into **Model/API Settings → TikTok Access Token**.
+
+> Note: In sandbox mode, only test users/scopes approved for your app can authorize successfully.
 
 ## Notes
 
