@@ -83,6 +83,7 @@ TIKTOK_OAUTH_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TIKTOK_OAUTH_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 TIKTOK_OAUTH_CALLBACK_PORT = int(os.getenv("TIKTOK_OAUTH_CALLBACK_PORT", "1457"))
 TIKTOK_OAUTH_SCOPE = os.getenv("TIKTOK_OAUTH_SCOPE", "user.info.basic,video.upload,video.publish")
+TIKTOK_PKCE_CHALLENGE_ENCODING = os.getenv("TIKTOK_PKCE_CHALLENGE_ENCODING", "hex").strip().lower()
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
@@ -2084,6 +2085,12 @@ class MainWindow(QMainWindow):
         digest = hashlib.sha256(verifier.encode("utf-8")).digest()
         return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
 
+    def _tiktok_pkce_challenge(self, verifier: str) -> str:
+        digest = hashlib.sha256(verifier.encode("utf-8")).digest()
+        if TIKTOK_PKCE_CHALLENGE_ENCODING == "base64url":
+            return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+        return digest.hex()
+
     def _generate_pkce_verifier(self, length: int = 64) -> str:
         length = max(43, min(128, int(length)))
         alphabet = string.ascii_letters + string.digits
@@ -2374,7 +2381,7 @@ class MainWindow(QMainWindow):
 
         state = secrets.token_hex(16)
         verifier = self._generate_pkce_verifier(64)
-        challenge = self._openai_pkce_challenge(verifier)
+        challenge = self._tiktok_pkce_challenge(verifier)
         redirect_uri = f"http://localhost:{TIKTOK_OAUTH_CALLBACK_PORT}/auth/callback"
         server, done_event, callback_result = self._start_oauth_callback_listener(TIKTOK_OAUTH_CALLBACK_PORT)
 
@@ -2386,7 +2393,7 @@ class MainWindow(QMainWindow):
 
             opened = QDesktopServices.openUrl(QUrl(authorize_url))
             if opened:
-                self._append_log("Opened TikTok OAuth authorize URL in your system browser. Complete sign-in to continue.")
+                self._append_log(f"Opened TikTok OAuth authorize URL in your system browser (PKCE challenge encoding: {TIKTOK_PKCE_CHALLENGE_ENCODING}). Complete sign-in to continue.")
             else:
                 raise RuntimeError("Failed to open system browser for TikTok OAuth authorization.")
 
