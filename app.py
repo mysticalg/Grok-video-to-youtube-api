@@ -1312,96 +1312,118 @@ class MainWindow(QMainWindow):
     def _build_model_api_settings_dialog(self) -> None:
         self.model_api_settings_dialog = QDialog(self)
         self.model_api_settings_dialog.setWindowTitle("Model/API Settings")
+        self.model_api_settings_dialog.setMinimumWidth(860)
+        self.model_api_settings_dialog.resize(980, 760)
+
         dialog_layout = QVBoxLayout(self.model_api_settings_dialog)
-        form_layout = QFormLayout()
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        settings_container = QWidget()
+        settings_layout = QVBoxLayout(settings_container)
+
+        ai_group = QGroupBox("AI Generation")
+        ai_layout = QFormLayout(ai_group)
 
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
         self.api_key.setText(os.getenv("GROK_API_KEY", ""))
-        form_layout.addRow("Grok API Key", self.api_key)
+        ai_layout.addRow("Grok API Key", self.api_key)
 
         self.chat_model = QLineEdit(os.getenv("GROK_CHAT_MODEL", "grok-3-mini"))
-        form_layout.addRow("Chat Model", self.chat_model)
+        ai_layout.addRow("Chat Model", self.chat_model)
 
         self.image_model = QLineEdit(os.getenv("GROK_VIDEO_MODEL", "grok-video-latest"))
-        form_layout.addRow("Video Model", self.image_model)
+        ai_layout.addRow("Video Model", self.image_model)
 
         self.prompt_source = QComboBox()
         self.prompt_source.addItem("Manual prompt (no API)", "manual")
         self.prompt_source.addItem("Grok API", "grok")
         self.prompt_source.addItem("OpenAI API", "openai")
         self.prompt_source.currentIndexChanged.connect(self._toggle_prompt_source_fields)
-        form_layout.addRow("Prompt Source", self.prompt_source)
+        ai_layout.addRow("Prompt Source", self.prompt_source)
 
         self.openai_access_token = QLineEdit()
         self.openai_access_token.setEchoMode(QLineEdit.Password)
         self.openai_access_token.setPlaceholderText("Optional bearer token from OAuth/browser sign-in flow")
         self.openai_access_token.setText(os.getenv("OPENAI_ACCESS_TOKEN", ""))
-        form_layout.addRow("OpenAI Access Token", self.openai_access_token)
+        ai_layout.addRow("OpenAI Access Token", self.openai_access_token)
 
         self.openai_chat_model = QLineEdit(os.getenv("OPENAI_CHAT_MODEL", "gpt-5.1-codex"))
-        form_layout.addRow("OpenAI Chat Model", self.openai_chat_model)
+        ai_layout.addRow("OpenAI Chat Model", self.openai_chat_model)
 
         self.ai_auth_method = QComboBox()
         self.ai_auth_method.addItem("API key", "api_key")
         self.ai_auth_method.addItem("Browser sign-in (preferred)", "browser")
-        form_layout.addRow("AI Authorization", self.ai_auth_method)
+        ai_layout.addRow("AI Authorization", self.ai_auth_method)
 
         self.browser_auth_btn = QPushButton("Open Provider Login in Browser")
         self.browser_auth_btn.clicked.connect(self.open_ai_provider_login)
-        form_layout.addRow("Browser Authorization", self.browser_auth_btn)
+        ai_layout.addRow("Browser Authorization", self.browser_auth_btn)
+
+        youtube_group = QGroupBox("YouTube")
+        youtube_layout = QFormLayout(youtube_group)
 
         self.youtube_api_key = QLineEdit()
         self.youtube_api_key.setEchoMode(QLineEdit.Password)
         self.youtube_api_key.setText(os.getenv("YOUTUBE_API_KEY", ""))
-        form_layout.addRow("YouTube API Key", self.youtube_api_key)
+        youtube_layout.addRow("YouTube API Key", self.youtube_api_key)
+
+        facebook_group = QGroupBox("Facebook")
+        facebook_layout = QFormLayout(facebook_group)
 
         self.facebook_page_id = QLineEdit(os.getenv("FACEBOOK_PAGE_ID", ""))
-        form_layout.addRow("Facebook Page ID", self.facebook_page_id)
+        facebook_layout.addRow("Facebook Page ID", self.facebook_page_id)
 
         self.facebook_access_token = QLineEdit()
         self.facebook_access_token.setEchoMode(QLineEdit.Password)
         self.facebook_access_token.setText(os.getenv("FACEBOOK_ACCESS_TOKEN", ""))
-        form_layout.addRow("Facebook Access Token", self.facebook_access_token)
+        facebook_layout.addRow("Facebook Access Token", self.facebook_access_token)
 
         self.facebook_app_id = QLineEdit(os.getenv("FACEBOOK_APP_ID", ""))
-        form_layout.addRow("Facebook App ID", self.facebook_app_id)
+        facebook_layout.addRow("Facebook App ID", self.facebook_app_id)
 
         self.facebook_app_secret = QLineEdit()
         self.facebook_app_secret.setEchoMode(QLineEdit.Password)
         self.facebook_app_secret.setText(os.getenv("FACEBOOK_APP_SECRET", ""))
-        form_layout.addRow("Facebook App Secret", self.facebook_app_secret)
+        facebook_layout.addRow("Facebook App Secret", self.facebook_app_secret)
 
         self.facebook_oauth_btn = QPushButton("Authorize Facebook for Pages")
         self.facebook_oauth_btn.setToolTip("Open Facebook OAuth in browser and populate Page ID + Page access token.")
         self.facebook_oauth_btn.clicked.connect(self.authorize_facebook_pages)
-        form_layout.addRow("Facebook OAuth", self.facebook_oauth_btn)
+        facebook_layout.addRow("Facebook OAuth", self.facebook_oauth_btn)
+
+        instagram_group = QGroupBox("Instagram")
+        instagram_layout = QFormLayout(instagram_group)
 
         self.instagram_business_id = QLineEdit(os.getenv("INSTAGRAM_BUSINESS_ID", ""))
-        form_layout.addRow("Instagram Business ID", self.instagram_business_id)
+        instagram_layout.addRow("Instagram Business ID", self.instagram_business_id)
 
         self.instagram_access_token = QLineEdit()
         self.instagram_access_token.setEchoMode(QLineEdit.Password)
         self.instagram_access_token.setText(os.getenv("INSTAGRAM_ACCESS_TOKEN", ""))
-        form_layout.addRow("Instagram Access Token", self.instagram_access_token)
+        instagram_layout.addRow("Instagram Access Token", self.instagram_access_token)
+
+        tiktok_group = QGroupBox("TikTok")
+        tiktok_layout = QFormLayout(tiktok_group)
 
         self.tiktok_access_token = QLineEdit()
         self.tiktok_access_token.setEchoMode(QLineEdit.Password)
         self.tiktok_access_token.setText(os.getenv("TIKTOK_ACCESS_TOKEN", ""))
-        form_layout.addRow("TikTok Access Token", self.tiktok_access_token)
+        tiktok_layout.addRow("TikTok Access Token", self.tiktok_access_token)
 
         self.tiktok_client_key = QLineEdit(os.getenv("TIKTOK_CLIENT_KEY", ""))
-        form_layout.addRow("TikTok Client Key", self.tiktok_client_key)
+        tiktok_layout.addRow("TikTok Client Key", self.tiktok_client_key)
 
         self.tiktok_client_secret = QLineEdit()
         self.tiktok_client_secret.setEchoMode(QLineEdit.Password)
         self.tiktok_client_secret.setText(os.getenv("TIKTOK_CLIENT_SECRET", ""))
-        form_layout.addRow("TikTok Client Secret", self.tiktok_client_secret)
+        tiktok_layout.addRow("TikTok Client Secret", self.tiktok_client_secret)
 
         self.tiktok_oauth_btn = QPushButton("Authorize TikTok Upload")
         self.tiktok_oauth_btn.setToolTip("Open TikTok OAuth in browser and populate TikTok access token.")
         self.tiktok_oauth_btn.clicked.connect(self.authorize_tiktok_upload)
-        form_layout.addRow("TikTok OAuth", self.tiktok_oauth_btn)
+        tiktok_layout.addRow("TikTok OAuth", self.tiktok_oauth_btn)
 
         self.tiktok_privacy_level = QComboBox()
         self.tiktok_privacy_level.addItem("Public", "PUBLIC_TO_EVERYONE")
@@ -1411,7 +1433,10 @@ class MainWindow(QMainWindow):
         privacy_index = self.tiktok_privacy_level.findData(env_privacy)
         if privacy_index >= 0:
             self.tiktok_privacy_level.setCurrentIndex(privacy_index)
-        form_layout.addRow("TikTok Privacy", self.tiktok_privacy_level)
+        tiktok_layout.addRow("TikTok Privacy", self.tiktok_privacy_level)
+
+        app_group = QGroupBox("App Preferences")
+        app_layout = QFormLayout(app_group)
 
         self.download_path_input = QLineEdit(str(self.download_dir))
         self.download_path_input.setReadOnly(True)
@@ -1420,7 +1445,7 @@ class MainWindow(QMainWindow):
         download_path_row = QHBoxLayout()
         download_path_row.addWidget(self.download_path_input)
         download_path_row.addWidget(choose_download_path_btn)
-        form_layout.addRow("Download Folder", download_path_row)
+        app_layout.addRow("Download Folder", download_path_row)
 
         self.crossfade_duration = QDoubleSpinBox()
         self.crossfade_duration.setRange(0.1, 3.0)
@@ -1429,15 +1454,24 @@ class MainWindow(QMainWindow):
         self.crossfade_duration.setValue(0.5)
         self.crossfade_duration.setSuffix(" s")
         self.crossfade_duration.valueChanged.connect(self._sync_video_options_label)
-        form_layout.addRow("Crossfade Duration", self.crossfade_duration)
+        app_layout.addRow("Crossfade Duration", self.crossfade_duration)
 
         self.manual_prompt_default_input = QPlainTextEdit()
         self.manual_prompt_default_input.setMaximumHeight(90)
         self.manual_prompt_default_input.setPlaceholderText("Default text used to prefill Manual Prompt.")
         self.manual_prompt_default_input.setPlainText(DEFAULT_MANUAL_PROMPT_TEXT)
-        form_layout.addRow("Default Manual Prompt", self.manual_prompt_default_input)
+        app_layout.addRow("Default Manual Prompt", self.manual_prompt_default_input)
 
-        dialog_layout.addLayout(form_layout)
+        settings_layout.addWidget(ai_group)
+        settings_layout.addWidget(youtube_group)
+        settings_layout.addWidget(facebook_group)
+        settings_layout.addWidget(instagram_group)
+        settings_layout.addWidget(tiktok_group)
+        settings_layout.addWidget(app_group)
+        settings_layout.addStretch(1)
+
+        settings_scroll.setWidget(settings_container)
+        dialog_layout.addWidget(settings_scroll)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Close)
         save_btn = button_box.button(QDialogButtonBox.StandardButton.Save)
