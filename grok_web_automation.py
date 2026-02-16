@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import os
 import platform
+import re
+import json
 import sys
+import time
 from pathlib import Path
+
+import requests
 
 
 def _require_playwright():
@@ -201,3 +206,258 @@ def generate_video_via_web(
         browser.close()
 
     return output_path
+
+
+def _slugify(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", value).strip("-").lower()
+    return cleaned or "flow"
+
+
+def _openai_training_summary(access_token: str, model: str, payload: dict) -> dict:
+    api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+    endpoint = f"{api_base}/responses"
+    instruction = (
+        "You are an automation analyst. Convert the captured browser training log into a deterministic replay plan. "
+        "Return strict JSON matching this schema: "
+        '{"process_name": str, "goal": str, "steps": [{"index": int, "action": "click|fill|press", "selector": str, '
+        '"value": str, "notes": str}], "risks": [str]}. '
+        "Keep selectors CSS-compatible and preserve action order."
+    )
+    response = requests.post(
+        endpoint,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "input": [
+                {"role": "system", "content": [{"type": "input_text", "text": instruction}]},
+                {"role": "user", "content": [{"type": "input_text", "text": json.dumps(payload)}]},
+            ],
+            "store": False,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    data = response.json()
+    text = ""
+    for item in data.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") in {"output_text", "text"}:
+                text += content.get("text", "")
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:].strip()
+    return json.loads(text)
+
+
+def train_browser_flow(
+    start_url: str,
+    output_dir: Path,
+    storage_state_path: Path | None = None,
+    timeout_s: int = 900,
+    screenshot_every_event: bool = True,
+) -> Path:
+    """Record a browser flow by observing user clicks/inputs and persist the raw trace.
+
+    User flow: call function, guide the browser manually, then close the browser tab/window to stop training.
+    """
+
+    sync_playwright = _require_playwright()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    screenshots_dir = output_dir / "screenshots"
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+    events: list[dict] = []
+    started_at = time.time()
+    event_counter = {"value": 0}
+
+    with sync_playwright() as p:
+        browser_type, browser_name = _get_browser_type(p)
+        context_options = {}
+        if storage_state_path and storage_state_path.exists():
+            context_options["storage_state"] = str(storage_state_path)
+        browser = browser_type.launch(headless=False)
+        context = browser.new_context(**context_options)
+        page = context.new_page()
+
+        def _record_event(source, event):
+            event_counter["value"] += 1
+            event["index"] = event_counter["value"]
+            event["source"] = source
+            event["ts"] = round(time.time() - started_at, 3)
+            if screenshot_every_event:
+                screenshot_name = f"step-{event['index']:03d}.png"
+                screenshot_path = screenshots_dir / screenshot_name
+                try:
+                    page.screenshot(path=str(screenshot_path), full_page=True)
+                    event["screenshot"] = str(Path("screenshots") / screenshot_name)
+                except Exception:  # noqa: BLE001
+                    event["screenshot"] = ""
+            events.append(event)
+
+        context.expose_binding("pyRecordEvent", _record_event)
+
+        page.add_init_script(
+            r"""
+            (() => {
+              const cssPath = (el) => {
+                if (!el || !(el instanceof Element)) return '';
+                const parts = [];
+                let node = el;
+                while (node && node.nodeType === Node.ELEMENT_NODE && parts.length < 6) {
+                  let part = node.nodeName.toLowerCase();
+                  if (node.id) {
+                    part += `#${node.id}`;
+                    parts.unshift(part);
+                    break;
+                  }
+                  const className = (node.className || '').toString().trim().split(/\s+/).filter(Boolean).slice(0,2).join('.');
+                  if (className) part += `.${className}`;
+                  const parent = node.parentElement;
+                  if (parent) {
+                    const siblings = Array.from(parent.children).filter((x) => x.nodeName === node.nodeName);
+                    if (siblings.length > 1) {
+                      part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+                    }
+                  }
+                  parts.unshift(part);
+                  node = node.parentElement;
+                }
+                return parts.join(' > ');
+              };
+
+              const scrub = (value) => (value || '').toString().slice(0, 400);
+              document.addEventListener('click', (event) => {
+                const el = event.target;
+                window.pyRecordEvent({
+                  action: 'click',
+                  selector: cssPath(el),
+                  text: scrub(el && el.innerText),
+                  tag: (el && el.tagName || '').toLowerCase(),
+                });
+              }, true);
+
+              document.addEventListener('change', (event) => {
+                const el = event.target;
+                if (!el) return;
+                const tag = (el.tagName || '').toLowerCase();
+                if (!['input', 'textarea', 'select'].includes(tag)) return;
+                window.pyRecordEvent({
+                  action: 'fill',
+                  selector: cssPath(el),
+                  value: scrub(el.value),
+                  tag,
+                });
+              }, true);
+
+              document.addEventListener('keydown', (event) => {
+                if (!event.key || !['Enter', 'Tab', 'Escape'].includes(event.key)) return;
+                const el = event.target;
+                window.pyRecordEvent({
+                  action: 'press',
+                  selector: cssPath(el),
+                  value: event.key,
+                  tag: (el && el.tagName || '').toLowerCase(),
+                });
+              }, true);
+            })();
+            """
+        )
+
+        page.goto(start_url, wait_until="domcontentloaded")
+        print("Training started. Interact with the browser, then close the browser window to stop training.")
+        page.wait_for_event("close", timeout=timeout_s * 1000)
+        context.close()
+        browser.close()
+
+        trace = {
+            "start_url": start_url,
+            "browser": browser_name,
+            "created_at": int(time.time()),
+            "events": events,
+        }
+        trace_path = output_dir / "raw_training_trace.json"
+        trace_path.write_text(json.dumps(trace, indent=2), encoding="utf-8")
+        return trace_path
+
+
+def build_trained_process(trace_path: Path, access_token: str, model: str = "gpt-5.1-codex") -> Path:
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    summary = _openai_training_summary(access_token=access_token, model=model, payload=trace)
+    process_name = _slugify(summary.get("process_name") or "trained-process")
+    output_path = trace_path.parent / f"{process_name}.process.json"
+    output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return output_path
+
+
+def run_trained_process(
+    process_path: Path,
+    start_url: str,
+    output_dir: Path,
+    storage_state_path: Path | None = None,
+    timeout_s: int = 180,
+) -> Path:
+    sync_playwright = _require_playwright()
+    process = json.loads(process_path.read_text(encoding="utf-8"))
+    steps = process.get("steps", [])
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as p:
+        browser_type, _browser_name = _get_browser_type(p)
+        context_options = {}
+        if storage_state_path and storage_state_path.exists():
+            context_options["storage_state"] = str(storage_state_path)
+        browser = browser_type.launch(headless=False)
+        context = browser.new_context(**context_options)
+        page = context.new_page()
+        page.goto(start_url, wait_until="domcontentloaded")
+
+        execution_log: list[dict] = []
+        for idx, step in enumerate(steps, start=1):
+            selector = step.get("selector", "")
+            action = step.get("action", "")
+            value = step.get("value", "")
+            status = "ok"
+            error = ""
+            try:
+                locator = page.locator(selector).first
+                locator.wait_for(state="visible", timeout=timeout_s * 1000)
+                if action == "click":
+                    locator.click()
+                elif action == "fill":
+                    locator.fill(value)
+                elif action == "press":
+                    locator.press(value or "Enter")
+                else:
+                    status = "skipped"
+                    error = f"Unsupported action: {action}"
+            except Exception as exc:  # noqa: BLE001
+                status = "error"
+                error = str(exc)
+
+            shot = output_dir / f"run-step-{idx:03d}.png"
+            try:
+                page.screenshot(path=str(shot), full_page=True)
+            except Exception:  # noqa: BLE001
+                pass
+            execution_log.append(
+                {
+                    "index": idx,
+                    "action": action,
+                    "selector": selector,
+                    "value": value,
+                    "status": status,
+                    "error": error,
+                    "screenshot": shot.name,
+                }
+            )
+
+        report_path = output_dir / "run_report.json"
+        report_path.write_text(json.dumps(execution_log, indent=2), encoding="utf-8")
+        context.close()
+        browser.close()
+        return report_path

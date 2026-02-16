@@ -167,6 +167,18 @@ curl -X POST https://open.tiktokapis.com/v2/oauth/token/ \
 
 > Note: In sandbox mode, only test users/scopes approved for your app can authorize successfully.
 
+## Training + replay automation (experimental)
+
+With OpenAI OAuth/authenticated access configured, you can now prototype a training-driven browser workflow in `grok_web_automation.py`:
+
+- `train_browser_flow(...)`: opens a visible browser, records click/fill/press events, captures screenshots, and saves `raw_training_trace.json`.
+- `build_trained_process(...)`: sends the captured trace to OpenAI Responses API and writes a deterministic process JSON (for example `run-training.process.json`).
+- `run_trained_process(...)`: replays the trained selectors/actions, captures per-step screenshots, and writes `run_report.json`.
+
+This is intended for supervised setup flows where you manually demonstrate the path once, then replay/refine it automatically.
+
+You can now run this workflow directly in the desktop app under the **AI Flow Trainer** tab (right panel). Use **Start Training** → **Build Process** → **Run Process** to manage traces and replay artifacts without leaving the GUI.
+
 ## Notes
 
 - Manual prompt mode runs against the embedded `grok.com/imagine` browser session (no xAI API generation call).

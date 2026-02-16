@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSplitter,
+    QTabWidget,
     QScrollArea,
     QTextBrowser,
     QVBoxLayout,
@@ -53,6 +54,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from social_uploaders import upload_video_to_facebook_page, upload_video_to_instagram_reels, upload_video_to_tiktok
 from youtube_uploader import upload_video_to_youtube
+from grok_web_automation import build_trained_process, run_trained_process, train_browser_flow
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
@@ -739,6 +741,54 @@ class UploadWorker(QThread):
             self.failed.emit(self.platform_name, str(exc))
 
 
+class BrowserTrainingWorker(QThread):
+    status = Signal(str)
+    finished = Signal(str, str)
+    failed = Signal(str)
+
+    def __init__(self, mode: str, payload: dict):
+        super().__init__()
+        self.mode = mode
+        self.payload = payload
+
+    def run(self) -> None:
+        try:
+            if self.mode == "train":
+                self.status.emit("Starting guided browser training window...")
+                trace_path = train_browser_flow(
+                    start_url=self.payload["start_url"],
+                    output_dir=self.payload["output_dir"],
+                    timeout_s=self.payload["timeout_s"],
+                )
+                self.finished.emit("train", str(trace_path))
+                return
+
+            if self.mode == "build":
+                self.status.emit("Building reusable process from trace via OpenAI...")
+                process_path = build_trained_process(
+                    trace_path=self.payload["trace_path"],
+                    access_token=self.payload["access_token"],
+                    model=self.payload["model"],
+                )
+                self.finished.emit("build", str(process_path))
+                return
+
+            if self.mode == "run":
+                self.status.emit("Running trained process in browser...")
+                report_path = run_trained_process(
+                    process_path=self.payload["process_path"],
+                    start_url=self.payload["start_url"],
+                    output_dir=self.payload["output_dir"],
+                    timeout_s=self.payload["timeout_s"],
+                )
+                self.finished.emit("run", str(report_path))
+                return
+
+            raise RuntimeError(f"Unknown training mode: {self.mode}")
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class FilteredWebEnginePage(QWebEnginePage):
     """Suppress noisy third-party console warnings from grok.com in the embedded browser."""
 
@@ -783,6 +833,7 @@ class MainWindow(QMainWindow):
         self.worker: GenerateWorker | None = None
         self.stitch_worker: StitchWorker | None = None
         self.upload_worker: UploadWorker | None = None
+        self.browser_training_worker: BrowserTrainingWorker | None = None
         self._ffmpeg_nvenc_checked = False
         self._ffmpeg_nvenc_available = False
         self.preview_fullscreen_overlay_btn: QPushButton | None = None
@@ -1283,8 +1334,12 @@ class MainWindow(QMainWindow):
         bottom_splitter.addWidget(log_group)
         bottom_splitter.setSizes([500, 800])
 
+        self.browser_tabs = QTabWidget()
+        self.browser_tabs.addTab(self.browser, "Browser")
+        self.browser_tabs.addTab(self._build_browser_training_tab(), "AI Flow Trainer")
+
         right_splitter = QSplitter(Qt.Vertical)
-        right_splitter.addWidget(self.browser)
+        right_splitter.addWidget(self.browser_tabs)
         right_splitter.addWidget(bottom_splitter)
         right_splitter.setSizes([620, 280])
 
@@ -1308,6 +1363,82 @@ class MainWindow(QMainWindow):
         self._build_menu_bar()
         self._toggle_prompt_source_fields()
         self._sync_video_options_label()
+
+    def _build_browser_training_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        description = QLabel(
+            "Train a reusable browser flow from a guided session, then replay it on demand. "
+            "Training opens a separate Playwright browser window."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #9fb3c8;")
+        layout.addWidget(description)
+
+        form = QFormLayout()
+        self.training_start_url = QLineEdit("https://grok.com/imagine")
+        form.addRow("Start URL", self.training_start_url)
+
+        self.training_output_dir = QLineEdit(str(self.download_dir / "browser_training"))
+        form.addRow("Output Folder", self.training_output_dir)
+
+        self.training_timeout = QSpinBox()
+        self.training_timeout.setRange(30, 7200)
+        self.training_timeout.setValue(900)
+        self.training_timeout.setSuffix(" s")
+        form.addRow("Training Timeout", self.training_timeout)
+
+        self.training_openai_model = QLineEdit("gpt-5.1-codex")
+        form.addRow("Planner Model", self.training_openai_model)
+
+        self.training_trace_path = QLineEdit()
+        self.training_trace_path.setPlaceholderText("Path to raw_training_trace.json")
+        form.addRow("Training Trace", self.training_trace_path)
+
+        self.training_process_path = QLineEdit()
+        self.training_process_path.setPlaceholderText("Path to *.process.json")
+        form.addRow("Process File", self.training_process_path)
+
+        layout.addLayout(form)
+
+        path_actions = QHBoxLayout()
+        choose_output_btn = QPushButton("Choose Output Folder")
+        choose_output_btn.clicked.connect(self._choose_training_output_folder)
+        path_actions.addWidget(choose_output_btn)
+
+        choose_trace_btn = QPushButton("Select Trace")
+        choose_trace_btn.clicked.connect(self._choose_training_trace_file)
+        path_actions.addWidget(choose_trace_btn)
+
+        choose_process_btn = QPushButton("Select Process")
+        choose_process_btn.clicked.connect(self._choose_training_process_file)
+        path_actions.addWidget(choose_process_btn)
+        layout.addLayout(path_actions)
+
+        run_actions = QHBoxLayout()
+        self.training_start_btn = QPushButton("Start Training")
+        self.training_start_btn.setStyleSheet(
+            "background-color: #1976d2; color: white; font-weight: 700;"
+            "border: 1px solid #0d47a1; border-radius: 6px; padding: 6px 10px;"
+        )
+        self.training_start_btn.clicked.connect(self.start_browser_training)
+        run_actions.addWidget(self.training_start_btn)
+
+        self.training_build_btn = QPushButton("Build Process")
+        self.training_build_btn.clicked.connect(self.build_browser_training_process)
+        run_actions.addWidget(self.training_build_btn)
+
+        self.training_run_btn = QPushButton("Run Process")
+        self.training_run_btn.clicked.connect(self.run_browser_training_process)
+        run_actions.addWidget(self.training_run_btn)
+        layout.addLayout(run_actions)
+
+        self.training_status = QLabel("Status: idle")
+        self.training_status.setStyleSheet("color: #9fb3c8;")
+        layout.addWidget(self.training_status)
+        layout.addStretch(1)
+        return tab
 
     def _build_model_api_settings_dialog(self) -> None:
         self.model_api_settings_dialog = QDialog(self)
@@ -1680,6 +1811,12 @@ class MainWindow(QMainWindow):
             "download_dir": str(self.download_dir),
             "preview_muted": self.preview_mute_checkbox.isChecked(),
             "preview_volume": self.preview_volume_slider.value(),
+            "training_start_url": self.training_start_url.text(),
+            "training_output_dir": self.training_output_dir.text(),
+            "training_timeout": self.training_timeout.value(),
+            "training_openai_model": self.training_openai_model.text(),
+            "training_trace_path": self.training_trace_path.text(),
+            "training_process_path": self.training_process_path.text(),
             "ai_social_metadata": {
                 "title": self.ai_social_metadata.title,
                 "description": self.ai_social_metadata.description,
@@ -1835,6 +1972,21 @@ class MainWindow(QMainWindow):
                 self.preview_volume_slider.setValue(int(preferences["preview_volume"]))
             except (TypeError, ValueError):
                 pass
+        if "training_start_url" in preferences:
+            self.training_start_url.setText(str(preferences["training_start_url"]))
+        if "training_output_dir" in preferences:
+            self.training_output_dir.setText(str(preferences["training_output_dir"]))
+        if "training_timeout" in preferences:
+            try:
+                self.training_timeout.setValue(int(preferences["training_timeout"]))
+            except (TypeError, ValueError):
+                pass
+        if "training_openai_model" in preferences:
+            self.training_openai_model.setText(str(preferences["training_openai_model"]))
+        if "training_trace_path" in preferences:
+            self.training_trace_path.setText(str(preferences["training_trace_path"]))
+        if "training_process_path" in preferences:
+            self.training_process_path.setText(str(preferences["training_process_path"]))
 
         self._toggle_prompt_source_fields()
         self._sync_video_options_label()
@@ -4783,7 +4935,137 @@ class MainWindow(QMainWindow):
         )
         self._start_continue_iteration()
 
+    def _training_output_dir(self) -> Path:
+        output_dir = Path(self.training_output_dir.text().strip() or str(self.download_dir / "browser_training"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.training_output_dir.setText(str(output_dir))
+        return output_dir
+
+    def _choose_training_output_folder(self) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "Choose Training Output Folder", self.training_output_dir.text().strip() or str(self.download_dir))
+        if selected:
+            self.training_output_dir.setText(selected)
+
+    def _choose_training_trace_file(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Training Trace",
+            self.training_output_dir.text().strip() or str(self.download_dir),
+            "Trace JSON (raw_training_trace.json *.json)",
+        )
+        if file_path:
+            self.training_trace_path.setText(file_path)
+
+    def _choose_training_process_file(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Training Process",
+            self.training_output_dir.text().strip() or str(self.download_dir),
+            "Process JSON (*.process.json *.json)",
+        )
+        if file_path:
+            self.training_process_path.setText(file_path)
+
+    def _start_browser_training_worker(self, mode: str, payload: dict) -> None:
+        if self.browser_training_worker is not None and self.browser_training_worker.isRunning():
+            QMessageBox.information(self, "Training in Progress", "Please wait until the current training task finishes.")
+            return
+
+        self.browser_training_worker = BrowserTrainingWorker(mode, payload)
+        self.browser_training_worker.status.connect(self._on_browser_training_status)
+        self.browser_training_worker.finished.connect(self._on_browser_training_finished)
+        self.browser_training_worker.failed.connect(self._on_browser_training_failed)
+        self.browser_training_worker.start()
+        self.training_status.setText(f"Status: {mode} started")
+
+    def _on_browser_training_status(self, message: str) -> None:
+        self.training_status.setText(f"Status: {message}")
+        self._append_log(message)
+
+    def _on_browser_training_finished(self, mode: str, output_path: str) -> None:
+        self.training_status.setText(f"Status: {mode} complete")
+        if mode == "train":
+            self.training_trace_path.setText(output_path)
+            self._append_log(f"Training complete. Trace saved: {output_path}")
+        elif mode == "build":
+            self.training_process_path.setText(output_path)
+            self._append_log(f"Process build complete. Process saved: {output_path}")
+        elif mode == "run":
+            self._append_log(f"Process run complete. Report saved: {output_path}")
+
+        QMessageBox.information(self, "AI Flow Trainer", f"{mode.title()} completed.\n{output_path}")
+
+    def _on_browser_training_failed(self, error_message: str) -> None:
+        self.training_status.setText("Status: failed")
+        self._append_log(f"ERROR: Browser training workflow failed: {error_message}")
+        QMessageBox.critical(self, "AI Flow Trainer", error_message)
+
+    def start_browser_training(self) -> None:
+        output_dir = self._training_output_dir()
+        start_url = self.training_start_url.text().strip() or "https://grok.com/imagine"
+        timeout_s = self.training_timeout.value()
+        self._start_browser_training_worker(
+            "train",
+            {
+                "start_url": start_url,
+                "output_dir": output_dir,
+                "timeout_s": timeout_s,
+            },
+        )
+
+    def build_browser_training_process(self) -> None:
+        trace_path_text = self.training_trace_path.text().strip()
+        if not trace_path_text:
+            QMessageBox.warning(self, "Missing Trace", "Select or generate a training trace before building a process.")
+            return
+
+        access_token = self.openai_access_token.text().strip()
+        if not access_token:
+            QMessageBox.warning(self, "Missing OpenAI Access Token", "Sign in with Browser Authorization or paste an access token in Settings.")
+            return
+
+        trace_path = Path(trace_path_text)
+        if not trace_path.exists():
+            QMessageBox.warning(self, "Trace Not Found", f"Training trace does not exist:\n{trace_path}")
+            return
+
+        model = self.training_openai_model.text().strip() or "gpt-5.1-codex"
+        self._start_browser_training_worker(
+            "build",
+            {
+                "trace_path": trace_path,
+                "access_token": access_token,
+                "model": model,
+            },
+        )
+
+    def run_browser_training_process(self) -> None:
+        process_path_text = self.training_process_path.text().strip()
+        if not process_path_text:
+            QMessageBox.warning(self, "Missing Process", "Select or build a process file before running it.")
+            return
+
+        process_path = Path(process_path_text)
+        if not process_path.exists():
+            QMessageBox.warning(self, "Process Not Found", f"Process file does not exist:\n{process_path}")
+            return
+
+        output_dir = self._training_output_dir() / "run_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        start_url = self.training_start_url.text().strip() or "https://grok.com/imagine"
+
+        self._start_browser_training_worker(
+            "run",
+            {
+                "process_path": process_path,
+                "start_url": start_url,
+                "output_dir": output_dir,
+                "timeout_s": 180,
+            },
+        )
+
     def show_browser_page(self) -> None:
+        self.browser_tabs.setCurrentIndex(0)
         self.browser.setUrl(QUrl("https://grok.com/imagine"))
         self._append_log("Navigated embedded browser to grok.com/imagine.")
 
