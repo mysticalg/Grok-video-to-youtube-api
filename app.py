@@ -84,6 +84,8 @@ TIKTOK_OAUTH_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 TIKTOK_OAUTH_CALLBACK_PORT = int(os.getenv("TIKTOK_OAUTH_CALLBACK_PORT", "1457"))
 TIKTOK_OAUTH_SCOPE = os.getenv("TIKTOK_OAUTH_SCOPE", "user.info.basic,video.upload,video.publish")
 TIKTOK_PKCE_CHALLENGE_ENCODING = os.getenv("TIKTOK_PKCE_CHALLENGE_ENCODING", "hex").strip().lower()
+if TIKTOK_PKCE_CHALLENGE_ENCODING not in {"hex", "base64url"}:
+    TIKTOK_PKCE_CHALLENGE_ENCODING = "hex"
 DEFAULT_PREFERENCES_FILE = BASE_DIR / "preferences.json"
 GITHUB_REPO_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api"
 GITHUB_RELEASES_URL = "https://github.com/mysticalg/Grok-video-to-youtube-api/releases"
@@ -2393,7 +2395,7 @@ class MainWindow(QMainWindow):
 
             opened = QDesktopServices.openUrl(QUrl(authorize_url))
             if opened:
-                self._append_log(f"Opened TikTok OAuth authorize URL in your system browser (PKCE challenge encoding: {TIKTOK_PKCE_CHALLENGE_ENCODING}). Complete sign-in to continue.")
+                self._append_log("Opened TikTok OAuth authorize URL in your system browser. Complete sign-in to continue.")
             else:
                 raise RuntimeError("Failed to open system browser for TikTok OAuth authorization.")
 

@@ -143,10 +143,10 @@ python app.py
 2. Generate a PKCE verifier/challenge + state (required by TikTok), then build/open the authorize URL:
 
 ```bash
-python -c "import base64,hashlib,secrets,string,urllib.parse;alphabet=string.ascii_letters+string.digits;v=''.join(secrets.choice(alphabet) for _ in range(64));c=hashlib.sha256(v.encode()).hexdigest();s=secrets.token_hex(16);r='http://localhost:1457/auth/callback';p={'client_key':'YOUR_CLIENT_KEY','response_type':'code','scope':'user.info.basic,video.upload,video.publish','redirect_uri':r,'state':s,'code_challenge':c,'code_challenge_method':'S256'};print('VERIFIER=',v);print('STATE=',s);print('URL=', 'https://www.tiktok.com/v2/auth/authorize/?'+urllib.parse.urlencode(p))"
+python -c "import hashlib,secrets,string,urllib.parse;alphabet=string.ascii_letters+string.digits;v=''.join(secrets.choice(alphabet) for _ in range(64));c=hashlib.sha256(v.encode()).hexdigest();s=secrets.token_hex(16);r='http://localhost:1457/auth/callback';p={'client_key':'YOUR_CLIENT_KEY','response_type':'code','scope':'user.info.basic,video.upload,video.publish','redirect_uri':r,'state':s,'code_challenge':c,'code_challenge_method':'S256'};print('VERIFIER=',v);print('STATE=',s);print('URL=', 'https://www.tiktok.com/v2/auth/authorize/?'+urllib.parse.urlencode(p))"
 ```
 
-> Note: This project currently defaults TikTok PKCE challenge generation to **hex-encoded SHA-256** to match observed TikTok behavior. Set `TIKTOK_PKCE_CHALLENGE_ENCODING=base64url` if your app expects RFC-style S256 output.
+> Note: TikTok PKCE challenge generation defaults to **hex-encoded SHA-256** in this app. If needed, set `TIKTOK_PKCE_CHALLENGE_ENCODING=base64url` to use RFC-style S256 output.
 
 3. Open the printed `URL`, approve access, and verify `state` matches your printed `STATE`.
 4. After redirect, copy the `code` from `?code=...&state=...`.
