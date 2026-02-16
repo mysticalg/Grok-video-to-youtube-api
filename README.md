@@ -177,6 +177,8 @@ With OpenAI OAuth/authenticated access configured, you can now prototype a train
 
 This is intended for supervised setup flows where you manually demonstrate the path once, then replay/refine it automatically.
 
+You can now run this workflow directly in the desktop app under the **AI Flow Trainer** tab (right panel). Use **Start Training** → **Build Process** → **Run Process** to manage traces and replay artifacts without leaving the GUI.
+
 ## Notes
 
 - Manual prompt mode runs against the embedded `grok.com/imagine` browser session (no xAI API generation call).
